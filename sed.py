@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import confusion_matrix
 import metrics
 import utils
-from IPython import embed
 
 sys.setrecursionlimit(10000)
 

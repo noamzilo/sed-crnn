@@ -5,7 +5,7 @@ import librosa
 from IPython import embed
 import os
 from sklearn import preprocessing
-
+from decorte_data_loader import load_decorte_dataset
 
 def load_audio(filename, mono=True, fs=44100):
 	"""Load audio file into numpy array
@@ -118,29 +118,40 @@ __class_labels = {
 }
 
 # location of data.
-folds_list = [1, 2, 3, 4]
-evaluation_setup_folder = '/scratch/asignal/sharath/DCASE2017/TUT-sound-events-2017-development/evaluation_setup'
-audio_folder = '/scratch/asignal/sharath/DCASE2017/TUT-sound-events-2017-development/audio/street'
+# folds_list = [1, 2, 3, 4]
+# evaluation_setup_folder = '/scratch/asignal/sharath/DCASE2017/TUT-sound-events-2017-development/evaluation_setup'
+# audio_folder = '/scratch/asignal/sharath/DCASE2017/TUT-sound-events-2017-development/audio/street'
+#
+# # Output
+# feat_folder = '/scratch/asignal/sharath/DCASE2017/TUT-sound-events-2017-development/feat/'
+# utils.create_folder(feat_folder)
+#
+# # User set parameters
+# nfft = 2048
+# win_len = nfft
+# hop_len = win_len // 2
+# nb_mel_bands = 40
+# sr = 44100
+#
+# # -----------------------------------------------------------------------
+# # Feature extraction and label generation
+# # -----------------------------------------------------------------------
+# # Load labels
+# train_file = os.path.join(evaluation_setup_folder, 'street_fold{}_train.txt'.format(1))
+# evaluate_file = os.path.join(evaluation_setup_folder, 'street_fold{}_evaluate.txt'.format(1))
+# desc_dict = load_desc_file(train_file)
+# desc_dict.update(load_desc_file(evaluate_file))  # contains labels for all the audio in the dataset
 
-# Output
-feat_folder = '/scratch/asignal/sharath/DCASE2017/TUT-sound-events-2017-development/feat/'
-utils.create_folder(feat_folder)
+dataset = load_decorte_dataset(k_folds=4)
 
-# User set parameters
-nfft = 2048
-win_len = nfft
-hop_len = win_len // 2
-nb_mel_bands = 40
+is_mono = True
 sr = 44100
-
-# -----------------------------------------------------------------------
-# Feature extraction and label generation
-# -----------------------------------------------------------------------
-# Load labels
-train_file = os.path.join(evaluation_setup_folder, 'street_fold{}_train.txt'.format(1))
-evaluate_file = os.path.join(evaluation_setup_folder, 'street_fold{}_evaluate.txt'.format(1))
-desc_dict = load_desc_file(train_file)
-desc_dict.update(load_desc_file(evaluate_file))  # contains labels for all the audio in the dataset
+nfft = 2048
+hop_len = nfft // 2
+nb_mel_bands = 40
+feat_folder = '/home/noam/src/plai_cv/cache/decorte_metadata/features'
+assert os.path.isfeat_folder = '/home/noam/src/plai_cv/cache/decorte_metadata/features'
+utils.create_folder(feat_folder)
 
 # Extract features for all audio files, and save it along with labels
 for audio_filename in os.listdir(audio_folder):
