@@ -150,7 +150,7 @@ nfft = 2048
 hop_len = nfft // 2
 nb_mel_bands = 40
 feat_folder = '/home/noam/src/plai_cv/cache/decorte_metadata/features'
-assert os.path.isfeat_folder = '/home/noam/src/plai_cv/cache/decorte_metadata/features'
+os.makedirs('/home/noam/src/plai_cv/cache/decorte_metadata/features', exist_ok=True)
 utils.create_folder(feat_folder)
 
 # Extract features for all audio files, and save it along with labels
