@@ -17,17 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np, torch, torch.nn as nn
 import pytorch_lightning as pl
 import metrics
-
-# ────────────────────────────────────────────────────────────────
-#  Constants (sequence length must be 256 for ×20 pooling)
-# ────────────────────────────────────────────────────────────────
-SEQ_LEN_IN				= 256
-TIME_POOL				= [5, 2, 2]			# 256 /(5·2·2)=12  (paper)
-SEQ_LEN_OUT				= SEQ_LEN_IN // math.prod(TIME_POOL)	# 12
-SAMPLE_RATE				= 44_100
-HOP_LENGTH				= 2048 // 2
-FPS_ORIG				= int(SAMPLE_RATE / HOP_LENGTH)		# ≈43 fps
-FPS_OUT					= FPS_ORIG // math.prod(TIME_POOL)
+from train_constants import SEQ_LEN_IN, TIME_POOL, SEQ_LEN_OUT, SAMPLE_RATE, HOP_LENGTH, FPS_ORIG, FPS_OUT
 
 # ────────────────────────────────────────────────────────────────
 #  Binary Focal BCE (α & γ from original focal-loss paper)

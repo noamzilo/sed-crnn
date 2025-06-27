@@ -10,21 +10,7 @@ Lightning DataModule + Dataset for the Decorte hit-detection task
 import os, random, numpy as np, torch
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
-
-# ────────────────────────────────────────────────────────────────
-#  Constants (identical defaults + aug params)
-# ────────────────────────────────────────────────────────────────
-SEQ_LEN_IN		= 64
-TIME_POOL = [5, 2, 2]
-SEQ_LEN_OUT = int(256 // np.prod(TIME_POOL))
-CACHE_DIR		= os.path.expanduser("~/src/plai_cv/cache/decorte_metadata/features")
-BATCH_SIZE		= 128
-NUM_WORKERS		= 4
-
-# Augmentation hyper-params
-TIME_MASK_W		= 8			# frames
-FREQ_MASK_W		= 8			# mel bins
-MASKS_PER_EX	= 2
+from train_constants import *
 
 # ────────────────────────────────────────────────────────────────
 #  Utility
