@@ -107,7 +107,7 @@ class CRNNLightning(pl.LightningModule):
 		self.log("train_loss", loss, on_epoch=True, prog_bar=True)
 		return loss
 
-	def training_epoch_end(self, outputs):
+	def on_training_epoch_end(self, outputs):
 		# concatenate along batch axis (dim=0)
 		preds = torch.cat(self.train_preds).detach().cpu().numpy()
 		trues = torch.cat(self.train_trues).detach().cpu().numpy()
@@ -205,10 +205,13 @@ class CRNNLightning(pl.LightningModule):
 		update_best("f1_frame", val_f1_frame, maximize=True)
 		update_best("er_frame", val_er_frame, maximize=False)
 
-		# print
 		def fmt(name, value):
 			best = self.track["best"][name]
-			return f"{value:.3f} (best={best['val']:.3f}@{best['epoch']})"
+			best_val = best['val']
+			best_epoch = best['epoch']
+			if best_val is None:
+				return f"{value:.3f} (best=NA@NA)"
+			return f"{value:.3f} (best={best_val:.3f}@{best_epoch})"
 
 		log = f"📊 Epoch {epoch:3d} | "
 		log += f"train_loss={fmt('train_loss', train_loss.item() if train_loss else 0)} | "
@@ -221,11 +224,11 @@ class CRNNLightning(pl.LightningModule):
 		def plot_metric(ax, train, val, name, best=None):
 			ax.plot(train, label="train")
 			ax.plot(val, label="val")
-			if best is not None:
+			if best is not None and best["val"] is not None:
 				ax.axhline(best["val"], linestyle="--", color="gray", linewidth=0.8)
-			ax.set_title(name);
-			ax.set_xlabel("Epoch");
-			ax.grid();
+			ax.set_title(name)
+			ax.set_xlabel("Epoch")
+			ax.grid()
 			ax.legend()
 
 		plt.figure(figsize=(12, 6))
@@ -268,10 +271,14 @@ class CRNNLightning(pl.LightningModule):
 		update_best("f1_frame", val_f1_frame, maximize=True)
 		update_best("er_frame", val_er_frame, maximize=False)
 
-		# print
+		#print
 		def fmt(name, value):
 			best = self.track["best"][name]
-			return f"{value:.3f} (best={best['val']:.3f}@{best['epoch']})"
+			best_val = best["val"]
+			best_epoch = best["epoch"]
+			if best_val is None:
+				return f"{value:.3f} (best=NA@NA)"
+			return f"{value:.3f} (best={best_val:.3f}@{best_epoch})"
 
 		log = f"📊 Epoch {epoch:3d} | "
 		log += f"train_loss={fmt('train_loss', train_loss.item() if train_loss else 0)} | "
@@ -284,11 +291,11 @@ class CRNNLightning(pl.LightningModule):
 		def plot_metric(ax, train, val, name, best=None):
 			ax.plot(train, label="train")
 			ax.plot(val, label="val")
-			if best is not None:
+			if best is not None and best["val"] is not None:
 				ax.axhline(best["val"], linestyle="--", color="gray", linewidth=0.8)
-			ax.set_title(name);
-			ax.set_xlabel("Epoch");
-			ax.grid();
+			ax.set_title(name)
+			ax.set_xlabel("Epoch")
+			ax.grid()
 			ax.legend()
 
 		plt.figure(figsize=(12, 6))
