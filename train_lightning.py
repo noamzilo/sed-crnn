@@ -12,6 +12,7 @@ import os, datetime, torch, numpy as np, pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from decorte_datamodule import DecorteDataModule
 from crnn_lightning import CRNNLightning
+torch.set_float32_matmul_precision('medium')
 
 MAX_EPOCHS		= 200
 EARLY_STOP		= 20					# ← tighter
