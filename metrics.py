@@ -1,7 +1,6 @@
 import numpy as np
 import utils
 
-
 #####################
 # Scoring functions
 #
@@ -12,22 +11,28 @@ import utils
 # Applied Sciences, 6(6):162, 2016
 #####################
 
-
+def _ensure_numeric(arr):
+	if isinstance(arr, np.ndarray) and arr.dtype == bool:
+		return arr.astype(np.uint8)
+	if hasattr(arr, "dtype") and str(arr.dtype) == "bool":
+		return arr.astype(np.uint8)
+	return arr
 def f1_overall_framewise(O, T):
 	if len(O.shape) == 3:
 		O, T = utils.reshape_3Dto2D(O), utils.reshape_3Dto2D(T)
+	O = _ensure_numeric(O)
+	T = _ensure_numeric(T)
 	TP = ((2 * T - O) == 1).sum()
 	Nref, Nsys = T.sum(), O.sum()
-
 	prec = float(TP) / float(Nsys + utils.eps)
 	recall = float(TP) / float(Nref + utils.eps)
-	f1_score = 2 * prec * recall / (prec + recall + utils.eps)
-	return f1_score
-
+	return 2 * prec * recall / (prec + recall + utils.eps)
 
 def er_overall_framewise(O, T):
 	if len(O.shape) == 3:
 		O, T = utils.reshape_3Dto2D(O), utils.reshape_3Dto2D(T)
+	O = _ensure_numeric(O)
+	T = _ensure_numeric(T)
 	FP = np.logical_and(T == 0, O == 1).sum(1)
 	FN = np.logical_and(T == 1, O == 0).sum(1)
 
@@ -36,36 +41,34 @@ def er_overall_framewise(O, T):
 	I = np.maximum(0, FP - FN).sum()
 
 	Nref = T.sum()
-	ER = (S + D + I) / (Nref + 0.0)
-	return ER
-
+	return (S + D + I) / (Nref + 0.0)
 
 def f1_overall_1sec(O, T, block_size):
 	if len(O.shape) == 3:
 		O, T = utils.reshape_3Dto2D(O), utils.reshape_3Dto2D(T)
+	O, T = _ensure_numeric(O), _ensure_numeric(T)
 	new_size = int(np.ceil(O.shape[0] / block_size))
 	O_block = np.zeros((new_size, O.shape[1]))
 	T_block = np.zeros((new_size, O.shape[1]))
-	for i in range(0, new_size):
-		O_block[i, :] = np.max(O[int(i * block_size):int(i * block_size + block_size - 1),], axis=0)
-		T_block[i, :] = np.max(T[int(i * block_size):int(i * block_size + block_size - 1),], axis=0)
+	for i in range(new_size):
+		O_block[i, :] = np.max(O[i * block_size : i * block_size + block_size], axis=0)
+		T_block[i, :] = np.max(T[i * block_size : i * block_size + block_size], axis=0)
 	return f1_overall_framewise(O_block, T_block)
-
 
 def er_overall_1sec(O, T, block_size):
 	if len(O.shape) == 3:
 		O, T = utils.reshape_3Dto2D(O), utils.reshape_3Dto2D(T)
+	O, T = _ensure_numeric(O), _ensure_numeric(T)
 	new_size = int(O.shape[0] / block_size)
 	O_block = np.zeros((new_size, O.shape[1]))
 	T_block = np.zeros((new_size, O.shape[1]))
-	for i in range(0, new_size):
-		O_block[i, :] = np.max(O[int(i * block_size):int(i * block_size + block_size - 1),], axis=0)
-		T_block[i, :] = np.max(T[int(i * block_size):int(i * block_size + block_size - 1),], axis=0)
+	for i in range(new_size):
+		O_block[i, :] = np.max(O[i * block_size : i * block_size + block_size], axis=0)
+		T_block[i, :] = np.max(T[i * block_size : i * block_size + block_size], axis=0)
 	return er_overall_framewise(O_block, T_block)
 
-
 def compute_scores(pred, y, frames_in_1_sec=50):
-	scores = dict()
-	scores['f1_overall_1sec'] = f1_overall_1sec(pred, y, frames_in_1_sec)
-	scores['er_overall_1sec'] = er_overall_1sec(pred, y, frames_in_1_sec)
-	return scores
+	return {
+		'f1_overall_1sec': f1_overall_1sec(pred, y, frames_in_1_sec),
+		'er_overall_1sec': er_overall_1sec(pred, y, frames_in_1_sec),
+	}
