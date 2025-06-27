@@ -53,10 +53,10 @@ def _ffmpeg_audio(path: str, sr: int = SR) -> np.ndarray:
 #  Mel feature extractor
 # ────────────────────────────────────────────────────────────────
 def _mbe(y: np.ndarray, sr: int) -> np.ndarray:
-	spec, _ = librosa.core.spectrum._spectrogram(y=y, n_fft=NFFT,
-		hop_length=HOP, power=1)
+	s = librosa.stft(y, n_fft=NFFT, hop_length=HOP)
+	power_spec = np.abs(s) ** 2
 	mel_b = librosa.filters.mel(sr=sr, n_fft=NFFT, n_mels=NB_MEL)
-	return np.log(np.dot(mel_b, spec)).T		# shape: (frames, 40)
+	return np.log(np.dot(mel_b, power_spec)).T		# shape: (frames, 40)
 
 # ────────────────────────────────────────────────────────────────
 #  Load + Process
