@@ -17,7 +17,11 @@ import matplotlib.pyplot as plt
 import numpy as np, torch, torch.nn as nn
 import pytorch_lightning as pl
 import metrics
-from train_constants import SEQ_LEN_IN, TIME_POOL, SEQ_LEN_OUT, SAMPLE_RATE, HOP_LENGTH, FPS_ORIG, FPS_OUT
+from train_constants import (
+	SEQ_LEN_IN, TIME_POOL, SEQ_LEN_OUT,
+	SAMPLE_RATE, HOP_LENGTH, FPS_ORIG, FPS_OUT,
+	N_MELS, CONV_DEPTH, GRU1_UNITS, GRU2_UNITS, DENSE1_UNITS
+)
 
 # ────────────────────────────────────────────────────────────────
 #  Binary Focal BCE (α & γ from original focal-loss paper)
@@ -40,33 +44,30 @@ class FocalBCELoss(nn.Module):
 class TimePooledCRNN(nn.Module):
 	def __init__(self, dropout=0.4):
 		super().__init__()
-
-		self.time_pool_layers = []
 		self.conv_stack = nn.Sequential()
 		in_channels = 1
-		conv_depth = 64
 		for i, pool_factor in enumerate(TIME_POOL):
-			self.conv_stack.append(nn.Conv2d(in_channels, conv_depth, kernel_size=3, padding=1))
-			self.conv_stack.append(nn.BatchNorm2d(conv_depth))
+			self.conv_stack.append(nn.Conv2d(in_channels, CONV_DEPTH, kernel_size=3, padding=1))
+			self.conv_stack.append(nn.BatchNorm2d(CONV_DEPTH))
 			self.conv_stack.append(nn.ReLU())
 			self.conv_stack.append(nn.MaxPool2d((1, pool_factor)))
-			in_channels = conv_depth
+			in_channels = CONV_DEPTH
 		self.conv_stack.append(nn.Dropout(dropout))
 
 		# dummy forward to infer flattened shape
 		with torch.no_grad():
-			dummy = torch.zeros(1, 1, 40, SEQ_LEN_IN)
-			dummy = self.conv_stack(dummy)			# → (1,64,40,T_out)
-			dummy = dummy.permute(0, 3, 1, 2)		# → (1,T_out,64,40)
+			dummy = torch.zeros(1, 1, N_MELS, SEQ_LEN_IN)
+			dummy = self.conv_stack(dummy)
+			dummy = dummy.permute(0, 3, 1, 2)
 			T_actual = dummy.shape[1]
-			self.flat = dummy.shape[2] * dummy.shape[3]	# 64 × 40 = 2560 if unchanged
+			self.flat = dummy.shape[2] * dummy.shape[3]
 
 		assert T_actual == SEQ_LEN_OUT, f"❌ CNN downsampling mismatch: expected SEQ_LEN_OUT={SEQ_LEN_OUT}, but got T={T_actual} from TIME_POOL={TIME_POOL}"
 
-		self.gru1 = nn.GRU(self.flat, 32, bidirectional=True, batch_first=True)
-		self.gru2 = nn.GRU(64, 16, bidirectional=True, batch_first=True)
-		self.dense1 = nn.Linear(32, 16)
-		self.dense2 = nn.Linear(16, 1)
+		self.gru1 = nn.GRU(self.flat, GRU1_UNITS, bidirectional=True, batch_first=True)
+		self.gru2 = nn.GRU(2 * GRU1_UNITS, GRU2_UNITS, bidirectional=True, batch_first=True)
+		self.dense1 = nn.Linear(2 * GRU2_UNITS, DENSE1_UNITS)
+		self.dense2 = nn.Linear(DENSE1_UNITS, 1)
 
 	def forward(self, x):					# x [B,1,40,T]
 		x = self.conv_stack(x)				# [B,64,40,T_out]
