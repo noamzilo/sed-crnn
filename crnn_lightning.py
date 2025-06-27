@@ -106,38 +106,87 @@ class CRNNLightning(pl.LightningModule):
 		self.trues.append(y.cpu())
 
 	def on_validation_epoch_end(self):
-		p = torch.cat(self.preds).numpy(); t = torch.cat(self.trues).numpy()
-		self.preds.clear(); self.trues.clear()
-		er = metrics.compute_scores(p > 0.5, t, FPS_OUT)['er_overall_1sec']
+		p = torch.cat(self.preds).numpy()
+		t = torch.cat(self.trues).numpy()
+		self.preds.clear();
+		self.trues.clear()
+
+		scores = metrics.compute_scores(p > 0.5, t, FPS_OUT)
+		er = scores["er_overall_1sec"]
+		f1 = scores["f1_overall_1sec"]
+
 		self.log("val_er", er, prog_bar=True)
+		self.log("val_f1", f1, prog_bar=True)
 
 		train_loss = self.trainer.callback_metrics.get("train_loss_epoch")
 		val_loss = self.trainer.callback_metrics.get("val_loss_epoch")
 
+		# initialize buffers on first run
+		if not hasattr(self, "val_f1s"):
+			self.val_f1s, self.val_ers = [], []
+			self.best_f1, self.best_er, self.best_loss = -1, 1, float("inf")
+			self.best_f1_epoch = self.best_er_epoch = self.best_loss_epoch = -1
+
+		epoch = self.current_epoch
+
+		# save all values
 		if train_loss is not None and val_loss is not None:
 			self.tr_losses.append(train_loss.item())
 			self.val_losses.append(val_loss.item())
 
-			plt.figure(figsize=(5, 3))
-			plt.plot(self.tr_losses, label='train')
-			plt.plot(self.val_losses, label='val')
-			plt.grid();
-			plt.xlabel('epoch');
-			plt.ylabel('Focal loss');
-			plt.legend()
-			os.makedirs(self.art_dir, exist_ok=True)
-			path = os.path.join(self.art_dir, f"loss_fold{self.hparams.fold_id}.png")
-			plt.tight_layout();
-			plt.savefig(path);
-			plt.close()
-			print(f"📁 Saved → {path}")
-		plt.figure(figsize=(5,3))
-		plt.plot(self.tr_losses, label='train'); plt.plot(self.val_losses, label='val')
-		plt.grid();	plt.xlabel('epoch'); plt.ylabel('Focal loss'); plt.legend()
+		self.val_f1s.append(f1)
+		self.val_ers.append(er)
+
+		# update bests
+		if val_loss is not None and val_loss.item() < self.best_loss:
+			self.best_loss = val_loss.item()
+			self.best_loss_epoch = epoch
+		if f1 > self.best_f1:
+			self.best_f1 = f1
+			self.best_f1_epoch = epoch
+		if er < self.best_er:
+			self.best_er = er
+			self.best_er_epoch = epoch
+
+		# inline print summary
+		loss_str = f"{val_loss.item():.3f} (best={self.best_loss:.3f}@{self.best_loss_epoch})" if val_loss is not None else "?"
+		f1_str = f"{f1:.3f} (best={self.best_f1:.3f}@{self.best_f1_epoch})"
+		er_str = f"{er:.3f} (best={self.best_er:.3f}@{self.best_er_epoch})"
+		print(f"📊 Epoch {epoch} | loss={loss_str} | F1={f1_str} | ER={er_str}")
+
+		# Plot
+		plt.figure(figsize=(12, 4))
+
+		plt.subplot(1, 3, 1)
+		plt.plot(self.tr_losses, label="train")
+		plt.plot(self.val_losses, label="val")
+		plt.title("Focal Loss")
+		plt.xlabel("Epoch");
+		plt.grid();
+		plt.legend()
+
+		plt.subplot(1, 3, 2)
+		plt.plot(self.val_f1s, label="F1 score")
+		plt.axhline(self.best_f1, linestyle="--", color="gray", linewidth=0.8)
+		plt.title("F1 (1s block)")
+		plt.xlabel("Epoch");
+		plt.grid();
+		plt.legend()
+
+		plt.subplot(1, 3, 3)
+		plt.plot(self.val_ers, label="ER")
+		plt.axhline(self.best_er, linestyle="--", color="gray", linewidth=0.8)
+		plt.title("Error Rate (1s block)")
+		plt.xlabel("Epoch");
+		plt.grid();
+		plt.legend()
+
 		os.makedirs(self.art_dir, exist_ok=True)
-		path = os.path.join(self.art_dir, f"loss_fold{self.hparams.fold_id}.png")
-		plt.tight_layout(); plt.savefig(path); plt.close()
-		print(f"📁 Saved → {path}")
+		path = os.path.join(self.art_dir, f"metrics_fold{self.hparams.fold_id}.png")
+		plt.tight_layout();
+		plt.savefig(path);
+		plt.close()
+		print(f"📈 Saved metrics → {path}")
 
 	def configure_optimizers(self):
 		opt = torch.optim.Adam(self.parameters(),

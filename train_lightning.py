@@ -29,21 +29,35 @@ for fold_id in range(1, 5):
 	dm = DecorteDataModule(fold_id=fold_id, cache_dir=CACHE_DIR)
 	model = CRNNLightning(fold_id=fold_id, art_dir=art_dir)
 
-	ckpt = ModelCheckpoint(dirpath=art_dir, filename="best",
-						   monitor='val_er', mode='min', save_weights_only=True)
+	ckpt = ModelCheckpoint(
+		dirpath=art_dir,
+		monitor='val_er',
+		mode='min',
+		save_top_k=-1,  # Save all
+		save_last=True,  # Optional: saves `last.ckpt`
+		save_weights_only=False,
+		filename="epoch{epoch:03d}-valer{val_er:.3f}"
+	)
 	es	 = EarlyStopping(monitor='val_er', mode='min', patience=EARLY_STOP)
 
-	trainer = pl.Trainer(max_epochs=MAX_EPOCHS,
+	trainer = pl.Trainer(
+		max_epochs=MAX_EPOCHS,
 						 accelerator=DEVICE_TYPE,
 						 devices=1,
 						 deterministic=True,
 						 callbacks=[ckpt, es],
 						 log_every_n_steps=50,
-						 gradient_clip_val=1.0)		# ← new
+						 gradient_clip_val=1.0,
+						 limit_train_batches=1.,
+						 overfit_batches=0.,
+						 )		# ← new
 
 	trainer.fit(model, datamodule=dm)
-	best_er = ckpt.best_model_score.item()
-	error_rates.append(best_er)
-	print(f"✔️ Fold {fold_id} best ER={best_er:.3f}")
+	if ckpt.best_model_score is not None:
+		best_er = ckpt.best_model_score.item()
+		print(f"✔️ Fold {fold_id} best ER={best_er:.3f}")
+		error_rates.append(best_er)
+	else:
+		print(f"⚠️ Fold {fold_id} has no best_model_score — skipping ER logging")
 
 print(f"\n🧮 Average ER across folds: {np.mean(error_rates):.3f}")
