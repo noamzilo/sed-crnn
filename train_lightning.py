@@ -31,21 +31,21 @@ for fold_id in range(1, 5):
 
 	ckpt = ModelCheckpoint(
 		dirpath=art_dir,
-		monitor='val_er',
+		monitor='val_er_1s',
 		mode='min',
 		save_top_k=-1,  # Save all
 		save_last=True,  # Optional: saves `last.ckpt`
 		save_weights_only=False,
-		filename="epoch{epoch:03d}-valer{val_er:.3f}"
+		filename="epoch{epoch:03d}-valer{val_er_1s:.3f}"
 	)
-	es	 = EarlyStopping(monitor='val_er', mode='min', patience=EARLY_STOP)
+	early_stopping	 = EarlyStopping(monitor='val_er_1s', mode='min', patience=EARLY_STOP)
 
 	trainer = pl.Trainer(
 		max_epochs=MAX_EPOCHS,
 						 accelerator=DEVICE_TYPE,
 						 devices=1,
 						 deterministic=True,
-						 callbacks=[ckpt, es],
+						 callbacks=[ckpt, early_stopping],
 						 log_every_n_steps=50,
 						 gradient_clip_val=1.0,
 						 limit_train_batches=1.,
