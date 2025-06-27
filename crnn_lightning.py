@@ -127,5 +127,5 @@ class CRNNLightning(pl.LightningModule):
 		opt = torch.optim.Adam(self.parameters(),
 							   lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
 		sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode='min',
-														   factor=0.5, patience=8, verbose=True)
+														   factor=0.5, patience=10)
 		return {"optimizer": opt, "lr_scheduler": {"scheduler": sched, "monitor": "val_loss"}}

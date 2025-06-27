@@ -15,8 +15,8 @@ import pytorch_lightning as pl
 #  Constants (identical defaults + aug params)
 # ────────────────────────────────────────────────────────────────
 SEQ_LEN_IN		= 64
-TIME_POOL		= [2, 2, 2]
-SEQ_LEN_OUT		= SEQ_LEN_IN // 8
+TIME_POOL = [5, 2, 2]
+SEQ_LEN_OUT = int(256 // np.prod(TIME_POOL))
 CACHE_DIR		= os.path.expanduser("~/src/plai_cv/cache/decorte_metadata/features")
 BATCH_SIZE		= 128
 NUM_WORKERS		= 4
