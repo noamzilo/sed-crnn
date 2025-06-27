@@ -72,15 +72,44 @@ class HitWindowDataset(Dataset):
 		return random.choice(self.neg_starts)
 
 	def _pool_labels(self, lab_win):
+		if lab_win.ndim == 1:
+			lab_win = lab_win[:, None]
 		return lab_win.reshape(SEQ_LEN_OUT, -1).max(axis=1, keepdims=True)
 
 	def __getitem__(self, idx):
 		start = self._rand_pos() if idx % 2 == 0 else self._rand_neg()
-		x = self.mel[start:start + SEQ_LEN_IN].T				# (40,64)
-		if self.augment:										# ← new
+
+		# safety: if start+SEQ_LEN_IN goes out of bounds, fallback to 0
+		if start + SEQ_LEN_IN > self.total_frames:
+			print(f"⚠️ start={start} too close to end (total={self.total_frames}), truncating.")
+			start = max(0, self.total_frames - SEQ_LEN_IN)
+
+		x = self.mel[start:start + SEQ_LEN_IN].T  # (40, SEQ_LEN_IN)
+		if x.shape[1] != SEQ_LEN_IN:
+			print(f"🔥 BAD x shape: {x.shape}, start={start}")
+			raise RuntimeError("x shape mismatch")
+
+		if self.augment:
 			x = _spec_augment(x.copy())
-		y = self._pool_labels(self.lab[start:start + SEQ_LEN_IN])
+
+		lab_win = self.lab[start:start + SEQ_LEN_IN]
+		if lab_win.shape[0] != SEQ_LEN_IN:
+			print(f"🔥 BAD label slice: shape={lab_win.shape}, start={start}")
+			raise RuntimeError("label shape mismatch")
+
+		# pool into SEQ_LEN_OUT steps (with fallback logging)
+		try:
+			y = lab_win.reshape(SEQ_LEN_OUT, -1).max(axis=1, keepdims=True)
+		except Exception as e:
+			print(f"🔥 label reshape failed: lab_win.shape={lab_win.shape}, SEQ_LEN_OUT={SEQ_LEN_OUT}")
+			raise e
+
+		if y.shape != (SEQ_LEN_OUT, 1):
+			print(f"🔥 BAD y shape after pooling: {y.shape}")
+			raise RuntimeError("y shape mismatch")
+
 		return torch.from_numpy(x).unsqueeze(0).float(), torch.from_numpy(y).float()
+
 
 # ────────────────────────────────────────────────────────────────
 #  DataModule

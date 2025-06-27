@@ -28,47 +28,55 @@ class FocalBCELoss(nn.Module):
 		self.alpha, self.gamma, self.reduction = alpha, gamma, reduction
 
 	def forward(self, logits, targets):
+		if logits.shape != targets.shape:
+			print(f"🔥 shape mismatch: logits={logits.shape}, targets={targets.shape}")
 		pt = torch.sigmoid(logits)
 		pt = torch.where(targets == 1, pt, 1 - pt)
 		loss = -self.alpha * (1 - pt) ** self.gamma * pt.log()
 		return loss.mean() if self.reduction == "mean" else loss.sum()
-
 # ────────────────────────────────────────────────────────────────
 #  CNN + GRU (backbone copied from Table 2)
 # ────────────────────────────────────────────────────────────────
 class TimePooledCRNN(nn.Module):
 	def __init__(self, dropout=0.4):
 		super().__init__()
-		self.conv_stack = nn.Sequential(
-			nn.Conv2d(1, 64, 3, padding=1),		nn.BatchNorm2d(64), nn.ReLU(),
-			nn.MaxPool2d((1, 5)),
-			nn.Conv2d(64, 64, 3, padding=1),	nn.BatchNorm2d(64), nn.ReLU(),
-			nn.MaxPool2d((1, 2)),
-			nn.Conv2d(64, 64, 3, padding=1),	nn.BatchNorm2d(64), nn.ReLU(),
-			nn.MaxPool2d((1, 2)),
-			nn.Dropout(dropout)
-		)
 
+		self.time_pool_layers = []
+		self.conv_stack = nn.Sequential()
+		in_channels = 1
+		conv_depth = 64
+		for i, pool_factor in enumerate(TIME_POOL):
+			self.conv_stack.append(nn.Conv2d(in_channels, conv_depth, kernel_size=3, padding=1))
+			self.conv_stack.append(nn.BatchNorm2d(conv_depth))
+			self.conv_stack.append(nn.ReLU())
+			self.conv_stack.append(nn.MaxPool2d((1, pool_factor)))
+			in_channels = conv_depth
+		self.conv_stack.append(nn.Dropout(dropout))
+
+		# dummy forward to infer flattened shape
 		with torch.no_grad():
 			dummy = torch.zeros(1, 1, 40, SEQ_LEN_IN)
-			dummy = self.conv_stack(dummy)			# → (1,64,40,12)
-			dummy = dummy.permute(0, 3, 1, 2)		# → (1,12,64,40)
-			self.flat = dummy.shape[2] * dummy.shape[3]	# 64 × 40 = 256
+			dummy = self.conv_stack(dummy)			# → (1,64,40,T_out)
+			dummy = dummy.permute(0, 3, 1, 2)		# → (1,T_out,64,40)
+			T_actual = dummy.shape[1]
+			self.flat = dummy.shape[2] * dummy.shape[3]	# 64 × 40 = 2560 if unchanged
+
+		assert T_actual == SEQ_LEN_OUT, f"❌ CNN downsampling mismatch: expected SEQ_LEN_OUT={SEQ_LEN_OUT}, but got T={T_actual} from TIME_POOL={TIME_POOL}"
 
 		self.gru1 = nn.GRU(self.flat, 32, bidirectional=True, batch_first=True)
 		self.gru2 = nn.GRU(64, 16, bidirectional=True, batch_first=True)
-		self.dense1 = nn.Linear(32, 16)		# 16 per direction → 32; halve back to 16
+		self.dense1 = nn.Linear(32, 16)
 		self.dense2 = nn.Linear(16, 1)
 
-	def forward(self, x):					# x [B,1,40,256]
-		x = self.conv_stack(x)				# [B,64,40,12]
-		x = x.permute(0, 3, 1, 2)			# [B,12,64,40]
+	def forward(self, x):					# x [B,1,40,T]
+		x = self.conv_stack(x)				# [B,64,40,T_out]
+		x = x.permute(0, 3, 1, 2)			# [B,T_out,64,40]
 		B, T, C, F = x.shape
-		x = x.reshape(B, T, C * F)			# [B,12,256]
-		x, _ = self.gru1(x)					# [B,12,64]
-		x, _ = self.gru2(x)					# [B,12,32]
-		x = torch.relu(self.dense1(x))		# [B,12,16]
-		return self.dense2(x)				# logits [B,12,1]
+		x = x.reshape(B, T, C * F)			# [B,T,2560]
+		x, _ = self.gru1(x)
+		x, _ = self.gru2(x)
+		x = torch.relu(self.dense1(x))
+		return self.dense2(x)				# [B,T_out,1]# logits [B,12,1]
 
 # ────────────────────────────────────────────────────────────────
 #  Lightning wrapper

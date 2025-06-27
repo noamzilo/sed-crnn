@@ -3,8 +3,8 @@ import math
 # ────────────────────────────────────────────────────────────────
 #  Constants (identical defaults + aug params)
 # ────────────────────────────────────────────────────────────────
-SEQ_LEN_IN		= 320
-TIME_POOL = [5, 2, 2]
+SEQ_LEN_IN		= 64
+TIME_POOL = [2, 2, 2]
 SEQ_LEN_OUT = int(SEQ_LEN_IN // math.prod(TIME_POOL))
 CACHE_DIR		= os.path.expanduser("~/src/plai_cv/cache/decorte_metadata/features")
 BATCH_SIZE		= 128
