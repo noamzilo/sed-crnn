@@ -100,14 +100,15 @@ class CRNNLightning(pl.LightningModule):
 		self._buf[mode]["losses"].append(loss.detach())
 
 	def _aggregate(self, mode):
-		# ---- stack & numpy ----
-		p_t = torch.cat(self._buf[mode]["preds"])				# [N,T,1]
+		# ---- stack tensors (still on GPU) ----
+		p_t = torch.cat(self._buf[mode]["preds"])			# [N,T,1], sigmoid already applied
 		t_t = torch.cat(self._buf[mode]["trues"])
 		loss = torch.stack(self._buf[mode]["losses"]).mean().item()
 		for k in self._buf[mode]: self._buf[mode][k].clear()
 
-		p = p_t.cpu().numpy()
-		t = t_t.cpu().numpy()
+		# ---- move to CPU & convert to numpy without grad ----
+		p = p_t.detach().cpu().numpy()
+		t = t_t.detach().cpu().numpy()
 		p_bin = (p > 0.5).astype(np.uint8)
 		t_bin = t.astype(np.uint8)
 
@@ -118,7 +119,7 @@ class CRNNLightning(pl.LightningModule):
 		tp = np.logical_and(p_bin == 1, t_bin == 1).sum()
 		cm = np.array([[tn, fp], [fn, tp]])
 
-		# ---- metrics via original helpers (numeric safe) ----
+		# ---- metrics ----
 		f1_fr = metrics.f1_overall_framewise(p_bin, t_bin)
 		er_fr = metrics.er_overall_framewise(p_bin, t_bin)
 		f1_1s = metrics.f1_overall_1sec    (p_bin, t_bin, FPS_OUT)
