@@ -146,7 +146,7 @@ if __name__ == '__main__':
 
 	nb_ch = 1 if is_mono else 2
 	batch_size = 128
-	seq_len = 256
+	seq_len = 64
 	nb_epoch = 500
 	patience = int(0.25 * nb_epoch)
 
@@ -163,7 +163,7 @@ if __name__ == '__main__':
 
 	# CRNN parameters
 	cnn_nb_filt = 128
-	cnn_pool_size = [5, 2, 2]
+	cnn_pool_size = [2, 2, 2]
 	rnn_nb = [32, 32]
 	fc_nb = [32]
 	dropout_rate = 0.5
