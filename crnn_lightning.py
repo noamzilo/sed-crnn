@@ -111,8 +111,26 @@ class CRNNLightning(pl.LightningModule):
 		er = metrics.compute_scores(p > 0.5, t, FPS_OUT)['er_overall_1sec']
 		self.log("val_er", er, prog_bar=True)
 
-		self.tr_losses.append(self.trainer.callback_metrics["train_loss_epoch"].item())
-		self.val_losses.append(self.trainer.callback_metrics["val_loss_epoch"].item())
+		train_loss = self.trainer.callback_metrics.get("train_loss_epoch")
+		val_loss = self.trainer.callback_metrics.get("val_loss_epoch")
+
+		if train_loss is not None and val_loss is not None:
+			self.tr_losses.append(train_loss.item())
+			self.val_losses.append(val_loss.item())
+
+			plt.figure(figsize=(5, 3))
+			plt.plot(self.tr_losses, label='train')
+			plt.plot(self.val_losses, label='val')
+			plt.grid();
+			plt.xlabel('epoch');
+			plt.ylabel('Focal loss');
+			plt.legend()
+			os.makedirs(self.art_dir, exist_ok=True)
+			path = os.path.join(self.art_dir, f"loss_fold{self.hparams.fold_id}.png")
+			plt.tight_layout();
+			plt.savefig(path);
+			plt.close()
+			print(f"📁 Saved → {path}")
 		plt.figure(figsize=(5,3))
 		plt.plot(self.tr_losses, label='train'); plt.plot(self.val_losses, label='val')
 		plt.grid();	plt.xlabel('epoch'); plt.ylabel('Focal loss'); plt.legend()
