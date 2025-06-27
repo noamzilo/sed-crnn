@@ -2,26 +2,29 @@
 # -*- coding: utf-8 -*-
 """
 Lightning DataModule + Dataset for the Decorte hit-detection task
-✓	keeps original per-window sampling & balancing
-✓	loads the same per-fold .npz feature packs
-✓	k-fold ready (default 4)
+✓	added simple SpecAugment-style time+frequency masking (train-only)
+✓	all previous behaviour unchanged
 ✓	tabs only
 """
 
-import os, random, numpy as np
-import torch
+import os, random, numpy as np, torch
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
 
 # ────────────────────────────────────────────────────────────────
-#  Constants (identical to the former sed.py)
+#  Constants (identical defaults + aug params)
 # ────────────────────────────────────────────────────────────────
 SEQ_LEN_IN		= 64
 TIME_POOL		= [2, 2, 2]
-SEQ_LEN_OUT		= SEQ_LEN_IN // 8		# 8 frames
+SEQ_LEN_OUT		= SEQ_LEN_IN // 8
 CACHE_DIR		= os.path.expanduser("~/src/plai_cv/cache/decorte_metadata/features")
 BATCH_SIZE		= 128
 NUM_WORKERS		= 4
+
+# Augmentation hyper-params
+TIME_MASK_W		= 8			# frames
+FREQ_MASK_W		= 8			# mel bins
+MASKS_PER_EX	= 2
 
 # ────────────────────────────────────────────────────────────────
 #  Utility
@@ -45,17 +48,33 @@ def _load_all_npz(folder: str):
 	return folds
 
 # ────────────────────────────────────────────────────────────────
+#  Simple SpecAugment
+# ────────────────────────────────────────────────────────────────
+def _spec_augment(mel: np.ndarray):
+	for _ in range(MASKS_PER_EX):
+		# time mask
+		if mel.shape[1] > TIME_MASK_W:
+			t0 = np.random.randint(0, mel.shape[1] - TIME_MASK_W)
+			mel[:, t0:t0 + TIME_MASK_W] = 0.0
+		# freq mask
+		if mel.shape[0] > FREQ_MASK_W:
+			f0 = np.random.randint(0, mel.shape[0] - FREQ_MASK_W)
+			mel[f0:f0 + FREQ_MASK_W, :] = 0.0
+	return mel
+
+# ────────────────────────────────────────────────────────────────
 #  Dataset
 # ────────────────────────────────────────────────────────────────
 class HitWindowDataset(Dataset):
-	def __init__(self, mel: np.ndarray, lab: np.ndarray):
+	def __init__(self, mel: np.ndarray, lab: np.ndarray, augment: bool = False):
 		self.mel, self.lab = mel, lab
+		self.augment = augment
 		self.pos_frames = np.where(lab[:, 0] == 1)[0].tolist()
 		self.neg_starts = _find_clean_negatives(lab).tolist()
 		self.total_frames = mel.shape[0]
 
 	def __len__(self):
-		return len(self.pos_frames) * 2		# 1 : 1 pos/neg
+		return len(self.pos_frames) * 2
 
 	def _rand_pos(self):
 		center = random.choice(self.pos_frames)
@@ -71,8 +90,10 @@ class HitWindowDataset(Dataset):
 
 	def __getitem__(self, idx):
 		start = self._rand_pos() if idx % 2 == 0 else self._rand_neg()
-		x = self.mel[start:start + SEQ_LEN_IN].T						# (40,64)
-		y = self._pool_labels(self.lab[start:start + SEQ_LEN_IN])	# (8,1)
+		x = self.mel[start:start + SEQ_LEN_IN].T				# (40,64)
+		if self.augment:										# ← new
+			x = _spec_augment(x.copy())
+		y = self._pool_labels(self.lab[start:start + SEQ_LEN_IN])
 		return torch.from_numpy(x).unsqueeze(0).float(), torch.from_numpy(y).float()
 
 # ────────────────────────────────────────────────────────────────
@@ -88,8 +109,8 @@ class DecorteDataModule(pl.LightningDataModule):
 	def setup(self, stage=None):
 		all_folds = _load_all_npz(self.cache_dir)
 		fdata = all_folds[self.fold_id]
-		self.train_ds = HitWindowDataset(fdata["train_x"], fdata["train_y"])
-		self.val_ds   = HitWindowDataset(fdata["val_x"],   fdata["val_y"])
+		self.train_ds = HitWindowDataset(fdata["train_x"], fdata["train_y"], augment=True)	# ← augment
+		self.val_ds   = HitWindowDataset(fdata["val_x"],   fdata["val_y"],   augment=False)
 
 	def train_dataloader(self):
 		return DataLoader(self.train_ds, self.batch_size, shuffle=True,

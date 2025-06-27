@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LightningModule wrapper around the original CRNN
-✓	same architecture / init weights / optimiser
-✓	logs BCE, F1, ER each epoch
-✓	saves loss-curve PNGs exactly like before
-✓	checkpoint & early-stop on val_ER
+LightningModule – Decorte hit-detection model
+✓	architecture & loss exactly as §4.2.1 (Table 2) of the paper
+✓	conv depth 64, TIME_POOL = [5,2,2]  (→ overall pool ×20)
+✓	Bi-GRU #1 = 32 units, Bi-GRU #2 = 16 units
+✓	time-distributed dense → 16 → 1 (sigmoid)
+✓	Binary Focal Loss (α = 0.25, γ = 2.0)
+✓	L2 weight-decay, ReduceLROnPlateau, dropout 0.4
 ✓	tabs only
 """
 
@@ -17,106 +19,113 @@ import pytorch_lightning as pl
 import metrics
 
 # ────────────────────────────────────────────────────────────────
-#  Constants copied verbatim from sed.py
+#  Constants (sequence length must be 256 for ×20 pooling)
 # ────────────────────────────────────────────────────────────────
+SEQ_LEN_IN				= 256
+TIME_POOL				= [5, 2, 2]			# 256 /(5·2·2)=12  (paper)
+SEQ_LEN_OUT				= SEQ_LEN_IN // math.prod(TIME_POOL)	# 12
 SAMPLE_RATE				= 44_100
-N_FFT					= 2048
-HOP_LENGTH				= N_FFT // 2
+HOP_LENGTH				= 2048 // 2
 FPS_ORIG				= int(SAMPLE_RATE / HOP_LENGTH)		# ≈43 fps
-SEQ_LEN_IN				= 64
-TIME_POOL				= [2, 2, 2]
-SEQ_LEN_OUT				= SEQ_LEN_IN // 8
-FPS_OUT					= FPS_ORIG // 8
+FPS_OUT					= FPS_ORIG // math.prod(TIME_POOL)
 
 # ────────────────────────────────────────────────────────────────
-#  CRNN backbone (unchanged)
+#  Binary Focal BCE (α & γ from original focal-loss paper)
+# ────────────────────────────────────────────────────────────────
+class FocalBCELoss(nn.Module):
+	def __init__(self, alpha=0.25, gamma=2.0, reduction="mean"):
+		super().__init__()
+		self.alpha, self.gamma, self.reduction = alpha, gamma, reduction
+
+	def forward(self, logits, targets):
+		pt = torch.sigmoid(logits)
+		pt = torch.where(targets == 1, pt, 1 - pt)
+		loss = -self.alpha * (1 - pt) ** self.gamma * pt.log()
+		return loss.mean() if self.reduction == "mean" else loss.sum()
+
+# ────────────────────────────────────────────────────────────────
+#  CNN + GRU (backbone copied from Table 2)
 # ────────────────────────────────────────────────────────────────
 class TimePooledCRNN(nn.Module):
-	def __init__(self, conv_channels=128, dropout=0.5):
+	def __init__(self, dropout=0.4):
 		super().__init__()
-		self.convs, self.bns, self.pools = nn.ModuleList(), nn.ModuleList(), nn.ModuleList()
-		ch = 1
-		for p in TIME_POOL:
-			self.convs.append(nn.Conv2d(ch, conv_channels, 3, padding=1))
-			self.bns.append(nn.BatchNorm2d(conv_channels))
-			self.pools.append(nn.MaxPool2d(kernel_size=(1, p)))
-			ch = conv_channels
-		self.drop = nn.Dropout(dropout)
+		self.conv_stack = nn.Sequential(
+			nn.Conv2d(1, 64, 3, padding=1),		nn.BatchNorm2d(64), nn.ReLU(),
+			nn.MaxPool2d((1, 5)),
+			nn.Conv2d(64, 64, 3, padding=1),	nn.BatchNorm2d(64), nn.ReLU(),
+			nn.MaxPool2d((1, 2)),
+			nn.Conv2d(64, 64, 3, padding=1),	nn.BatchNorm2d(64), nn.ReLU(),
+			nn.MaxPool2d((1, 2)),
+			nn.Dropout(dropout)
+		)
 
 		with torch.no_grad():
-			d = torch.zeros(1, 1, 40, SEQ_LEN_IN)
-			for c, b, p in zip(self.convs, self.bns, self.pools):
-				d = self.drop(p(torch.relu(b(c(d)))))
-			d = d.permute(0, 3, 1, 2)				# [B,T',C,F]
-			self.flat = d.shape[2] * d.shape[3]
+			dummy = torch.zeros(1, 1, 40, SEQ_LEN_IN)
+			dummy = self.conv_stack(dummy)			# → (1,64,40,12)
+			dummy = dummy.permute(0, 3, 1, 2)		# → (1,12,64,40)
+			self.flat = dummy.shape[2] * dummy.shape[3]	# 64 × 40 = 256
 
-		self.gru = nn.GRU(self.flat, 32, num_layers=2,
-						  batch_first=True, bidirectional=True)
-		self.fc = nn.Linear(64, 1)
+		self.gru1 = nn.GRU(self.flat, 32, bidirectional=True, batch_first=True)
+		self.gru2 = nn.GRU(64, 16, bidirectional=True, batch_first=True)
+		self.dense1 = nn.Linear(32, 16)		# 16 per direction → 32; halve back to 16
+		self.dense2 = nn.Linear(16, 1)
 
-	def forward(self, x):							# x [B,1,40,64]
-		for c, b, p in zip(self.convs, self.bns, self.pools):
-			x = self.drop(p(torch.relu(b(c(x)))))
-		x = x.permute(0, 3, 1, 2)					# [B,T',C,F]
+	def forward(self, x):					# x [B,1,40,256]
+		x = self.conv_stack(x)				# [B,64,40,12]
+		x = x.permute(0, 3, 1, 2)			# [B,12,64,40]
 		B, T, C, F = x.shape
-		x = x.reshape(B, T, C * F)					# [B,T',features]
-		x, _ = self.gru(x)
-		return self.fc(x)							# logits [B,T',1]
+		x = x.reshape(B, T, C * F)			# [B,12,256]
+		x, _ = self.gru1(x)					# [B,12,64]
+		x, _ = self.gru2(x)					# [B,12,32]
+		x = torch.relu(self.dense1(x))		# [B,12,16]
+		return self.dense2(x)				# logits [B,12,1]
 
 # ────────────────────────────────────────────────────────────────
-#  LightningModule
+#  Lightning wrapper
 # ────────────────────────────────────────────────────────────────
 class CRNNLightning(pl.LightningModule):
-	def __init__(self, fold_id: int, art_dir: str, lr: float = 1e-3, dropout: float = 0.5):
+	def __init__(self, fold_id: int, art_dir: str,
+				 lr=1e-3, weight_decay=1e-4, dropout=0.4):
 		super().__init__()
-		self.save_hyperparameters()
-		self.model = TimePooledCRNN(dropout=dropout)
-		self.loss_fn = nn.BCEWithLogitsLoss()
-		self.train_curve, self.val_curve = [], []
-		self.all_preds, self.all_trues = [], []
+		self.save_hyperparameters(ignore=["art_dir"])
+		self.art_dir, self.model = art_dir, TimePooledCRNN(dropout)
+		self.loss_fn = FocalBCELoss()
+		self.tr_losses, self.val_losses = [], []
+		self.preds, self.trues = [], []
 
-	def forward(self, x):
-		return self.model(x)
+	def forward(self, x): return self.model(x)
 
-	# ─────────────── training ───────────────
-	def training_step(self, batch, batch_idx):
-		x, y = batch
-		logits = self(x)
-		loss = self.loss_fn(logits, y)
-		self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+	def training_step(self, batch, _):
+		x, y = batch; loss = self.loss_fn(self(x), y)
+		self.log("train_loss", loss, on_epoch=True, prog_bar=True)
 		return loss
 
-	# ─────────────── validation ───────────────
-	def validation_step(self, batch, batch_idx):
+	def validation_step(self, batch, _):
 		x, y = batch
-		logits = self(x)
-		loss = self.loss_fn(logits, y)
-		self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-		self.all_preds.append(torch.sigmoid(logits).detach().cpu())
-		self.all_trues.append(y.detach().cpu())
-		return loss
+		logits = self(x); loss = self.loss_fn(logits, y)
+		self.log("val_loss", loss, on_epoch=True, prog_bar=True)
+		self.preds.append(torch.sigmoid(logits).cpu())
+		self.trues.append(y.cpu())
 
 	def on_validation_epoch_end(self):
-		pred = torch.cat(self.all_preds).numpy()
-		true = torch.cat(self.all_trues).numpy()
-		bin_pred = pred > 0.5
-		scores = metrics.compute_scores(bin_pred, true, frames_in_1_sec=FPS_OUT)
-		val_er = scores['er_overall_1sec']
-		self.log("val_er", val_er, prog_bar=True)
-		self.all_preds.clear(); self.all_trues.clear()
+		p = torch.cat(self.preds).numpy(); t = torch.cat(self.trues).numpy()
+		self.preds.clear(); self.trues.clear()
+		er = metrics.compute_scores(p > 0.5, t, FPS_OUT)['er_overall_1sec']
+		self.log("val_er", er, prog_bar=True)
 
-		# ─ save loss curve PNG exactly like old script
-		self.train_curve.append(self.trainer.callback_metrics["train_loss_epoch"].item())
-		self.val_curve.append(self.trainer.callback_metrics["val_loss_epoch"].item())
-		plt.figure(figsize=(5, 3))
-		plt.plot(self.train_curve, label='train')
-		plt.plot(self.val_curve, label='val')
-		plt.grid(); plt.xlabel('epoch'); plt.ylabel('BCE loss'); plt.legend()
-		os.makedirs(self.hparams.art_dir, exist_ok=True)
-		plot_path = os.path.join(self.hparams.art_dir, f"loss_fold{self.hparams.fold_id}.png")
-		plt.tight_layout(); plt.savefig(plot_path); plt.close()
-		print(f"📁 Saved → {plot_path}")
+		self.tr_losses.append(self.trainer.callback_metrics["train_loss_epoch"].item())
+		self.val_losses.append(self.trainer.callback_metrics["val_loss_epoch"].item())
+		plt.figure(figsize=(5,3))
+		plt.plot(self.tr_losses, label='train'); plt.plot(self.val_losses, label='val')
+		plt.grid();	plt.xlabel('epoch'); plt.ylabel('Focal loss'); plt.legend()
+		os.makedirs(self.art_dir, exist_ok=True)
+		path = os.path.join(self.art_dir, f"loss_fold{self.hparams.fold_id}.png")
+		plt.tight_layout(); plt.savefig(path); plt.close()
+		print(f"📁 Saved → {path}")
 
-	# ─────────────── optimiser ───────────────
 	def configure_optimizers(self):
-		return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+		opt = torch.optim.Adam(self.parameters(),
+							   lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+		sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode='min',
+														   factor=0.5, patience=8, verbose=True)
+		return {"optimizer": opt, "lr_scheduler": {"scheduler": sched, "monitor": "val_loss"}}
