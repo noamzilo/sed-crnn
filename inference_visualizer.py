@@ -15,7 +15,6 @@ from decorte_datamodule import DecorteDataModule, HitWindowDataset
 from decorte_data_loader import load_decorte_dataset
 from crnn_lightning import CRNNLightning
 from train_constants import *
-from moviepy.video.io.ffmpeg_writer import ffmpeg_write_video
 
 # ─────────────────────────────────────────────────────────────
 # Config
@@ -27,7 +26,7 @@ TMP_NPZ_PATH	= "/tmp/vigo04_tmp.npz"
 
 assert os.path.isfile(VIDEO_PATH), VIDEO_PATH
 assert os.path.isfile(CKPT_PATH), CKPT_PATH
-os.makedirs(OUTPUT_PATH, exist_ok=True)
+os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
 
 FRAME_SIZE		= (1280, 720)
 ALPHA			= 0.5
@@ -110,8 +109,14 @@ def main():
 		out_frames.append(blend_color(frame, color) if color else frame)
 
 	# Step 7: save video
-	ffmpeg_write_video(OUTPUT_PATH, np.stack(out_frames), FPS_OUT, FRAME_SIZE, codec="libx264")
-	print(f"✅ Done: {OUTPUT_PATH}")
+	fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # or 'avc1', 'H264', etc.
+	writer = cv2.VideoWriter(OUTPUT_PATH, fourcc, FPS_OUT, FRAME_SIZE)
+
+	for frame in out_frames:
+		writer.write(frame)
+
+	writer.release()
+	print(f"✅ Saved overlay to {OUTPUT_PATH}")
 
 if __name__ == "__main__":
 	main()
