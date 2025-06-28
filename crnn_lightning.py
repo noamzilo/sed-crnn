@@ -93,6 +93,10 @@ class CRNNLightning(pl.LightningModule):
 
 	def forward(self, x): return self.model(x)
 
+	def predict_step(self, batch, batch_idx):
+		x, _ = batch
+		return self(x)
+
 	# ───── helpers ────────────────────────────
 	def _collect(self, logits, y, loss, mode):
 		self._buf[mode]["preds"].append(torch.sigmoid(logits))
