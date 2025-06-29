@@ -1,122 +1,135 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Visualize model predictions on a Decorte rally video
-✓	Auto-looks up video metadata from Decorte dataset
-✓	Extracts features via DecorteDataModule
-✓	Infers using LightningModule + Trainer.predict()
-✓	Overlays prediction quality per frame
+inference_visualizer.py
+
+Generate a same-fps MP4 with synced audio and an alpha-blended
+hit-detection overlay (green = TP, yellow = FP, red = FN).
+
+✓	in-memory feature extraction (log-Mel)
+✓	sliding-window inference with CRNNLightning
+✓	alpha overlay per frame
+✓	remuxes original audio to keep sync
 ✓	tabs only
 """
 
-import os, cv2, torch, numpy as np
+import os, subprocess, tempfile, math, cv2, torch, numpy as np
 from pytorch_lightning import Trainer
-from decorte_datamodule import DecorteDataModule, HitWindowDataset
 from decorte_data_loader import load_decorte_dataset
+from decorte_datamodule import _ffmpeg_audio, _mbe
 from crnn_lightning import CRNNLightning
 from train_constants import *
 
 # ─────────────────────────────────────────────────────────────
-# Config
+# Paths (edit if needed)
 # ─────────────────────────────────────────────────────────────
 VIDEO_PATH		= "/home/noams/src/plai_cv/data/decorte/rallies/20230528_VIGO_04.mp4"
 CKPT_PATH		= "/home/noams/src/plai_cv/sed-crnn/train_artifacts/20250627_181038/fold3/epochepoch=022-valerval_er_1s=0.162.ckpt"
-OUTPUT_PATH		= f"/home/noams/src/plai_cv/output/visualizations/{os.path.splitext(os.path.basename(VIDEO_PATH))[0]}_overlay.mp4"
-TMP_NPZ_PATH	= "/tmp/vigo04_tmp.npz"
+OUT_DIR			= "/home/noams/src/plai_cv/output/visualizations"
+os.makedirs(OUT_DIR, exist_ok=True)
+BASENAME		= os.path.splitext(os.path.basename(VIDEO_PATH))[0]
+VIDEO_OUT_PATH		= os.path.join(OUT_DIR, f"{BASENAME}_overlay.mp4")
 
-assert os.path.isfile(VIDEO_PATH), VIDEO_PATH
-assert os.path.isfile(CKPT_PATH), CKPT_PATH
-os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-
-FRAME_SIZE		= (1280, 720)
 ALPHA			= 0.5
 DEVICE			= "cuda" if torch.cuda.is_available() else "cpu"
 
 # ─────────────────────────────────────────────────────────────
-# Video I/O
+# Helpers
 # ─────────────────────────────────────────────────────────────
-def load_video_frames(path):
-	cap = cv2.VideoCapture(path)
-	frames = []
-	while True:
-		ret, frame = cap.read()
-		if not ret:
-			break
-		if FRAME_SIZE:
-			frame = cv2.resize(frame, FRAME_SIZE)
-		frames.append(frame)
-	cap.release()
-	return frames
-
-def blend_color(frame, color):
+def blend(frame, color):
 	overlay = np.full_like(frame, color, dtype=np.uint8)
-	return cv2.addWeighted(frame, 1 - ALPHA, overlay, ALPHA, 0)
+	return cv2.addWeighted(frame, 1-ALPHA, overlay, ALPHA, 0)
+
+def sliding_windows(mbe: np.ndarray, win: int = SEQ_LEN_IN, stride: int = SEQ_LEN_OUT):
+	wins, starts = [], []
+	for s in range(0, mbe.shape[0] - win + 1, stride):
+		wins.append(mbe[s:s + win].T)		# (40, win)
+		starts.append(s)
+	return np.array(wins), np.array(starts)
 
 # ─────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────
 def main():
+	# ── Load metadata & ground-truth hits ──────────────────
 	vname = os.path.basename(VIDEO_PATH)
-	ds = load_decorte_dataset()
-	if vname not in ds:
-		raise ValueError(f"✖ {vname} not found in Decorte dataset")
+	meta_all = load_decorte_dataset()
+	if vname not in meta_all:
+		raise RuntimeError(f"{vname} not in Decorte metadata")
+	meta   = meta_all[vname]
+	hits   = meta["hits"]
+	fold   = meta["fold_id"]
 
-	meta = ds[vname]
-	hits_df = meta["hits"]
-	fold_id = meta["fold_id"]
+	# ── Decode audio & build MBE + label vector ────────────
+	y   = _ffmpeg_audio(VIDEO_PATH, SAMPLE_RATE)
+	mbe = _mbe(y, SAMPLE_RATE)				# (frames, 40)
+	lbl = np.zeros((mbe.shape[0], 1), np.float32)
+	for _, h in hits.iterrows():
+		s = int(math.floor(h["start"] * SAMPLE_RATE / HOP_LENGTH))
+		e = int(math.ceil (h["end"]   * SAMPLE_RATE / HOP_LENGTH))
+		lbl[s:e, 0] = 1.0
 
-	if len(hits_df) == 0:
-		raise ValueError(f"✖ no hit annotations for {vname}")
+	# ── Sliding-window tensor dataset ──────────────────────
+	win_x, win_starts = sliding_windows(mbe)
+	tensor_x = torch.from_numpy(win_x).unsqueeze(1).float()		# (N,1,40,L)
+	loader   = torch.utils.data.DataLoader(
+		torch.utils.data.TensorDataset(tensor_x),
+		batch_size = 64,
+		shuffle    = False,
+		pin_memory = True
+	)
 
-	print(f"📼 Visualizing {vname} (fold {fold_id}, {len(hits_df)} hits)")
-
-	# Step 1: generate .npz features
-	DecorteDataModule.extract_video_to_npz(VIDEO_PATH, hits_df, TMP_NPZ_PATH)
-
-	# Step 2: load raw video frames
-	frames = load_video_frames(VIDEO_PATH)
-
-	# Step 3: prepare dataset
-	npz = np.load(TMP_NPZ_PATH)
-	mbe, labels = npz["arr_0"], npz["arr_1"]
-	ds = HitWindowDataset(mbe, labels, augment=False)
-	dl = torch.utils.data.DataLoader(ds, batch_size=1, shuffle=False)
-
-	# Step 4: load model + run predict
-	model = CRNNLightning.load_from_checkpoint(CKPT_PATH, fold_id=fold_id, art_dir="/tmp").to(DEVICE)
+	# ── Run inference ──────────────────────────────────────
+	model   = CRNNLightning.load_from_checkpoint(CKPT_PATH, fold_id=fold, art_dir="/tmp").to(DEVICE)
 	trainer = Trainer(accelerator=DEVICE, devices=1, logger=False, enable_checkpointing=False)
-	preds = trainer.predict(model, dataloaders=dl)
+	logits  = trainer.predict(model, loader)
+	preds   = torch.cat(logits, 0).sigmoid().squeeze(-1).cpu().numpy().reshape(-1)
 
-	# Step 5: postprocess predictions and ground truth
-	preds_concat = torch.cat(preds, dim=0).squeeze(-1).cpu().numpy()
-	gt_concat = torch.cat([y.squeeze(-1) for _, y in dl], dim=0).cpu().numpy()
+	# Map window predictions → per-MBE frame (SEQ_LEN_OUT rate)
+	pred_full = np.zeros(mbe.shape[0], np.float32)
+	for i, s in enumerate(win_starts):
+		pred_full[s:s + SEQ_LEN_OUT] = preds[i * SEQ_LEN_OUT : (i + 1) * SEQ_LEN_OUT]
 
-	n_frames = len(frames)
-	rep = int(np.ceil(n_frames / len(preds_concat)))
-	pred_aligned = np.repeat(preds_concat, rep)[:n_frames]
-	gt_aligned = np.repeat(gt_concat, rep)[:n_frames]
+	# ── Prepare video I/O ──────────────────────────────────
+	cap   = cv2.VideoCapture(VIDEO_PATH)
+	fps   = cap.get(cv2.CAP_PROP_FPS)
+	w, h  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+	nf    = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-	# Step 6: generate overlay
-	out_frames = []
-	for i, frame in enumerate(frames):
-		p, t = pred_aligned[i] > 0.5, gt_aligned[i] > 0.5
-		color = (
-			(0, 255, 0) if t and p else
-			(0, 255, 255) if not t and p else
-			(0, 0, 255) if t and not p else
-			None
-		)
-		out_frames.append(blend_color(frame, color) if color else frame)
+	rep          = int(math.ceil(nf / len(pred_full)))
+	pred_aligned = np.repeat(pred_full.squeeze(), rep)[:nf]
+	gt_aligned   = np.repeat(lbl.squeeze(),        rep)[:nf]
 
-	# Step 7: save video
-	fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # or 'avc1', 'H264', etc.
-	writer = cv2.VideoWriter(OUTPUT_PATH, fourcc, FPS_OUT, FRAME_SIZE)
+	tmp_vid = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+	writer  = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
-	for frame in out_frames:
+	# ── Frame loop with overlay ────────────────────────────
+	for i in range(nf):
+		ret, frame = cap.read()
+		if not ret: break
+		p = pred_aligned[i] > 0.5
+		t = gt_aligned[i]   > 0.5
+		color = (0,255,0) if t and p else \
+				(0,255,255) if p and not t else \
+				(0,0,255) if t and not p else None
+		if color is not None:
+			frame = blend(frame, color)
 		writer.write(frame)
 
+	cap.release()
 	writer.release()
-	print(f"✅ Saved overlay to {OUTPUT_PATH}")
+
+	# ── Remux original audio to keep sync ──────────────────
+	subprocess.check_call([
+		"ffmpeg", "-y", "-loglevel", "error",
+		"-i", tmp_vid,
+		"-i", VIDEO_PATH,
+		"-c:v", "copy",
+		"-map", "0:v:0", "-map", "1:a:0",
+		"-shortest", VIDEO_OUT_PATH
+	])
+	os.remove(tmp_vid)
+	print(f"✅ Saved {VIDEO_OUT_PATH}")
 
 if __name__ == "__main__":
 	main()
