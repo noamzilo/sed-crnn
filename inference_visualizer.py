@@ -28,7 +28,7 @@ CKPT_PATH		= "/home/noams/src/plai_cv/sed-crnn/train_artifacts/20250627_181038/f
 OUT_DIR			= "/home/noams/src/plai_cv/output/visualizations"
 os.makedirs(OUT_DIR, exist_ok=True)
 BASENAME		= os.path.splitext(os.path.basename(VIDEO_PATH))[0]
-VIDEO_OUT_PATH		= os.path.join(OUT_DIR, f"{BASENAME}_overlay.mp4")
+VIDEO_OUT		= os.path.join(OUT_DIR, f"{BASENAME}_overlay.mp4")
 
 ALPHA			= 0.5
 DEVICE			= "cuda" if torch.cuda.is_available() else "cpu"
@@ -86,19 +86,31 @@ def main():
 	preds   = torch.cat(logits, 0).sigmoid().squeeze(-1).cpu().numpy().reshape(-1)
 
 	# Map window predictions → per-MBE frame (SEQ_LEN_OUT rate)
-	pred_full = np.zeros(mbe.shape[0], np.float32)
-	for i, s in enumerate(win_starts):
-		pred_full[s:s + SEQ_LEN_OUT] = preds[i * SEQ_LEN_OUT : (i + 1) * SEQ_LEN_OUT]
+	pred_accum = np.zeros(mbe.shape[0], np.float32)
+	pred_mask = np.zeros(mbe.shape[0], np.uint8)
 
-	# ── Prepare video I/O ──────────────────────────────────
+	for i, s in enumerate(win_starts):
+		chunk = preds[i * SEQ_LEN_OUT: (i + 1) * SEQ_LEN_OUT]
+		e = s + SEQ_LEN_OUT
+		if e > mbe.shape[0]:
+			chunk = chunk[:mbe.shape[0] - s]
+			e = mbe.shape[0]
+		pred_accum[s:e] = np.maximum(pred_accum[s:e], chunk)
+		pred_mask[s:e] = 1  # mark that this region has predictions
+
+	# Resample from ~43Hz to video FPS using linear interpolation
+	src_len = pred_accum.shape[0]
 	cap   = cv2.VideoCapture(VIDEO_PATH)
 	fps   = cap.get(cv2.CAP_PROP_FPS)
 	w, h  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 	nf    = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+	dst_len = nf  # number of video frames
+	x_src = np.linspace(0, 1, src_len)
+	x_dst = np.linspace(0, 1, dst_len)
+	pred_aligned = np.interp(x_dst, x_src, pred_accum)
+	gt_aligned = np.interp(x_dst, x_src, lbl.squeeze())
 
-	rep          = int(math.ceil(nf / len(pred_full)))
-	pred_aligned = np.repeat(pred_full.squeeze(), rep)[:nf]
-	gt_aligned   = np.repeat(lbl.squeeze(),        rep)[:nf]
+	# ── Prepare video I/O ──────────────────────────────────
 
 	tmp_vid = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
 	writer  = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
@@ -126,10 +138,10 @@ def main():
 		"-i", VIDEO_PATH,
 		"-c:v", "copy",
 		"-map", "0:v:0", "-map", "1:a:0",
-		"-shortest", VIDEO_OUT_PATH
+		"-shortest", VIDEO_OUT
 	])
 	os.remove(tmp_vid)
-	print(f"✅ Saved {VIDEO_OUT_PATH}")
+	print(f"✅ Saved {VIDEO_OUT}")
 
 if __name__ == "__main__":
 	main()
