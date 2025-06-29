@@ -94,7 +94,10 @@ class CRNNLightning(pl.LightningModule):
 	def forward(self, x): return self.model(x)
 
 	def predict_step(self, batch, batch_idx):
-		x, _ = batch
+		if isinstance(batch, (tuple, list)):
+			x = batch[0]
+		else:
+			x = batch
 		return self(x)
 
 	# ───── helpers ────────────────────────────
