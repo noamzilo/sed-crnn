@@ -113,8 +113,7 @@ class DecorteDataModule(pl.LightningDataModule):
 					Y_tr = lbl if Y_tr is None else np.vstack((Y_tr, lbl))
 
 			if not scaler_exists:
-				scaler = StandardScaler()
-				StandardScaler().fit(X_tr)
+				scaler = StandardScaler().fit(X_tr)
 				af.save_scaler(scaler, scaler_path)
 			else:
 				scaler = af.load_scaler(scaler_path)
