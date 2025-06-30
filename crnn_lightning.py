@@ -167,6 +167,14 @@ class CRNNLightning(pl.LightningModule):
 		loss = self.loss_fn(logits,y)
 		self._collect(logits,y,loss,"train")
 		self.log("train_loss",loss,on_epoch=True,prog_bar=True)
+
+		if self.global_step % 100 == 0:
+			with torch.no_grad():
+				logits_sample = logits[:4].detach().cpu().numpy()
+				sigmoid_sample = torch.sigmoid(logits[:4]).detach().cpu().numpy()
+				print(f"Train step={self.global_step}")
+				print("Logits sample:\n", logits_sample.reshape(-1, 8))
+				print("Sigmoid sample:\n", sigmoid_sample.reshape(-1, 8))
 		return loss
 
 	def on_train_epoch_end(self):

@@ -102,12 +102,15 @@ class HitWindowDataset(Dataset):
 	def _rand_neg(self): return random.choice(self.neg_starts)
 
 	def __getitem__(self, idx):
+
 		start = self._rand_pos() if idx % 2 == 0 else self._rand_neg()
 		if start + SEQ_LEN_IN > self.total_frames:
 			start = max(0, self.total_frames - SEQ_LEN_IN)
 
 		x = self.mel[start:start + SEQ_LEN_IN].T					# (40, SEQ_LEN_IN)
 		if self.augment: x = _spec_augment(x.copy())
+		if idx == 0:
+			np.save("/tmp/train_window.npy", x.numpy())
 
 		lab_win = self.lab[start:start + SEQ_LEN_IN]
 		y = lab_win.reshape(SEQ_LEN_OUT, -1).max(axis=1, keepdims=True)

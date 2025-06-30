@@ -24,7 +24,7 @@ DEVICE_TYPE		= 'gpu' if torch.cuda.is_available() else 'cpu'
 print(f"ARTIFACTS → {ART_DIR_ROOT}")
 
 error_rates = []
-for fold_id in range(1, 5):
+for fold_id in range(1, 2):
 	art_dir = os.path.join(ART_DIR_ROOT, f"fold{fold_id}")
 	dm = DecorteDataModule(fold_id=fold_id, cache_dir=CACHE_DIR)
 	model = CRNNLightning(fold_id=fold_id, art_dir=art_dir)
