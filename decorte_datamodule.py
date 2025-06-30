@@ -84,39 +84,28 @@ def _spec_augment(mel: np.ndarray):
 #  Dataset
 # ────────────────────────────────────────────────────────────────
 class HitWindowDataset(Dataset):
-	def __init__(self, mel: np.ndarray, lab: np.ndarray, augment: bool = False):
-		self.mel, self.lab = mel, lab
-		self.augment = augment
-		self.pos_frames = np.where(lab[:, 0] == 1)[0].tolist()
-		self.neg_starts = _find_clean_negatives(lab).tolist()
-		self.total_frames = mel.shape[0]
+	def __init__(self, mel: np.ndarray, lab: np.ndarray, augment: bool=False):
+		self.mel, self.lab, self.augment = mel, lab, augment
+		self.pos = np.where(lab[:,0]==1)[0].tolist()
+		self.neg = np.where(np.convolve((lab[:,0]==1).astype(np.uint8),
+										np.ones(SEQ_LEN_IN,dtype=np.uint8),'valid')==0)[0].tolist()
+		self.total = mel.shape[0]
 
-	def __len__(self): return len(self.pos_frames) * 2
-
-	def _rand_pos(self):
-		center = random.choice(self.pos_frames)
-		a = max(0, center - SEQ_LEN_IN + 1)
-		b = min(center, self.total_frames - SEQ_LEN_IN)
-		return random.randint(a, b)
-
-	def _rand_neg(self): return random.choice(self.neg_starts)
+	def __len__(self):	return len(self.pos)*2
+	def _rnd_pos(self):
+		c = random.choice(self.pos)
+		a,b = max(0,c-SEQ_LEN_IN+1), min(c,self.total-SEQ_LEN_IN)
+		return random.randint(a,b)
+	def _rnd_neg(self):	return random.choice(self.neg)
 
 	def __getitem__(self, idx):
-
-		start = self._rand_pos() if idx % 2 == 0 else self._rand_neg()
-		if start + SEQ_LEN_IN > self.total_frames:
-			start = max(0, self.total_frames - SEQ_LEN_IN)
-
-		x = self.mel[start:start + SEQ_LEN_IN].T					# (40, SEQ_LEN_IN)
-		if self.augment: x = _spec_augment(x.copy())
-		if idx == 0:
-			np.save("/tmp/train_window.npy", x.numpy())
-
-		lab_win = self.lab[start:start + SEQ_LEN_IN]
-		y = lab_win.reshape(SEQ_LEN_OUT, -1).max(axis=1, keepdims=True)
-
+		st = self._rnd_pos() if idx%2==0 else self._rnd_neg()
+		if st+SEQ_LEN_IN>self.total:	st = self.total-SEQ_LEN_IN
+		x = self.mel[st:st+SEQ_LEN_IN].T
+		if self.augment:	x=_spec_augment(x.copy())
+		if idx==0:	np.save("/tmp/train_window.npy", x)
+		y = self.lab[st:st+SEQ_LEN_IN].reshape(SEQ_LEN_OUT,-1).max(1,keepdims=True)
 		return torch.from_numpy(x).unsqueeze(0).float(), torch.from_numpy(y).float()
-
 # ────────────────────────────────────────────────────────────────
 #  DataModule  (owns preprocessing now)
 # ────────────────────────────────────────────────────────────────
