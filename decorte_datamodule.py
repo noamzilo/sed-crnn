@@ -89,27 +89,40 @@ class DecorteDataModule(pl.LightningDataModule):
 
 	# ─────────────────────────────────────
 	def _ensure_fold_npz(self):
-		if os.path.exists(self._per_fold_npz(self.fold_id)): return
 		ds = load_decorte_dataset(k_folds=4)
-		for v,info in ds.items(): self._extract_and_cache_video(v,info)	# ensure per-video
+		for v, info in ds.items():
+			self._extract_and_cache_video(v, info)  # ensure per-video
 
-		# pack each fold
-		for f in range(1,5):
-			if os.path.exists(self._per_fold_npz(f)) and os.path.exists(self._per_fold_scaler(f)):
+		for f in range(1, 5):
+			npz_path = self._per_fold_npz(f)
+			scaler_path = self._per_fold_scaler(f)
+			npz_exists = os.path.exists(npz_path)
+			scaler_exists = os.path.exists(scaler_path)
+
+			if npz_exists and scaler_exists:
 				continue
-			X_tr,Y_tr,X_te,Y_te=None,None,None,None
-			for v,info in ds.items():
-				mbe,lbl = np.load(self._per_video_npz(os.path.splitext(v)[0])).values()
-				if info["fold_id"]==f-1:
-					X_te = mbe if X_te is None else np.vstack((X_te,mbe))
-					Y_te = lbl if Y_te is None else np.vstack((Y_te,lbl))
+
+			X_tr, Y_tr, X_te, Y_te = None, None, None, None
+			for v, info in ds.items():
+				mbe, lbl = np.load(self._per_video_npz(os.path.splitext(v)[0])).values()
+				if info["fold_id"] == f - 1:
+					X_te = mbe if X_te is None else np.vstack((X_te, mbe))
+					Y_te = lbl if Y_te is None else np.vstack((Y_te, lbl))
 				else:
-					X_tr = mbe if X_tr is None else np.vstack((X_tr,mbe))
-					Y_tr = lbl if Y_tr is None else np.vstack((Y_tr,lbl))
-			scaler = StandardScaler().fit(X_tr)
-			af.save_scaler(scaler, self._per_fold_scaler(f))
-			X_tr = scaler.transform(X_tr); X_te = scaler.transform(X_te)
-			np.savez(self._per_fold_npz(f), X_tr, Y_tr, X_te, Y_te)
+					X_tr = mbe if X_tr is None else np.vstack((X_tr, mbe))
+					Y_tr = lbl if Y_tr is None else np.vstack((Y_tr, lbl))
+
+			if not scaler_exists:
+				scaler = StandardScaler()
+				StandardScaler().fit(X_tr)
+				af.save_scaler(scaler, scaler_path)
+			else:
+				scaler = af.load_scaler(scaler_path)
+
+			if not npz_exists:
+				X_tr = scaler.transform(X_tr)
+				X_te = scaler.transform(X_te)
+				np.savez(npz_path, X_tr, Y_tr, X_te, Y_te)
 
 	# ─────────────────────────────────────
 	def setup(self, stage=None):
