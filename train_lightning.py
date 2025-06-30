@@ -45,7 +45,7 @@ os.makedirs(ART_DIR_ROOT, exist_ok=True)
 print(f"ARTIFACTS → {ART_DIR_ROOT}")
 
 error_rates = []
-for fold_id in range(1, 5):
+for fold_id in range(1, 2):
 	art_dir = os.path.join(ART_DIR_ROOT, f"fold{fold_id}")
 	_tee_to_file(os.path.join(art_dir, "train.log"))
 
