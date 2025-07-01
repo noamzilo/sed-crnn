@@ -24,6 +24,7 @@ from audio_features import _ffmpeg_audio, _mbe
 from crnn_lightning import CRNNLightning
 import audio_features as af
 from train_constants import *
+from scipy.interpolate import interp1d
 
 # ─────────────────────────────────────────────────────────────
 # Paths (edit if needed)
@@ -54,21 +55,25 @@ def sliding_windows(mbe: np.ndarray, win: int = SEQ_LEN_IN, stride: int = SEQ_LE
 		starts.append(s)
 	return np.array(wins), np.array(starts)
 
-def create_frame_level_dataframe(pred_full, lbl, fps, nf):
-	"""Create a dataframe with frame-level predictions and ground truth"""
-	# Align predictions to video frames
-	rep = int(math.ceil(nf / len(pred_full)))
-	pred_aligned = np.repeat(pred_full.squeeze(), rep)[:nf]
-	gt_aligned = np.repeat(lbl.squeeze(), rep)[:nf]
+def create_frame_level_dataframe(pred_video, gt_video, fps, nf):
+	"""Create a dataframe with frame-level predictions and ground truth
 	
-	# Create dataframe
+	Args:
+		pred_video: predictions in video frame space
+		gt_video: ground truth in video frame space  
+		fps: video frame rate
+		nf: number of video frames
+	"""
+	# Create dataframe with video-space data
+	video_times = np.arange(nf) / fps
+	
 	df = pd.DataFrame({
 		'frame': range(nf),
-		'time': np.arange(nf) / fps,
-		'prediction': pred_aligned,
-		'ground_truth': gt_aligned,
-		'pred_binary': pred_aligned > PREDICTION_THRESHOLD,
-		'gt_binary': gt_aligned > 0.5
+		'time': video_times,
+		'prediction': pred_video,
+		'ground_truth': gt_video,
+		'pred_binary': pred_video > PREDICTION_THRESHOLD,
+		'gt_binary': gt_video > 0.5
 	})
 	
 	return df
@@ -257,6 +262,36 @@ def create_video_overlay(frame_df, video_path, output_path, fps, width, height):
 	os.remove(tmp_vid)
 	print(f"✅ Saved {output_path}")
 
+def create_ground_truth_in_video_space(hits, fps, nf):
+	"""Create ground truth labels in video frame space"""
+	# Create ground truth in video frame space
+	video_times = np.arange(nf) / fps
+	gt_video = np.zeros(nf, dtype=np.float32)
+	
+	for _, h in hits.iterrows():
+		start_time = h["start"]
+		end_time = h["end"]
+		
+		# Find video frames that fall within this time range
+		mask = (video_times >= start_time) & (video_times <= end_time)
+		gt_video[mask] = 1.0
+	
+	return gt_video
+
+def create_predictions_in_video_space(pred_full, fps, nf):
+	"""Convert audio frame predictions to video frame predictions"""
+	audio_frames = len(pred_full)
+	
+	# Create time arrays using constants from train_constants.py
+	audio_times = np.arange(audio_frames) / FPS_ORIG
+	video_times = np.arange(nf) / fps
+	
+	# Interpolate predictions from audio time to video time
+	pred_interpolator = interp1d(audio_times, pred_full, kind='linear', bounds_error=False, fill_value=0)
+	pred_video = pred_interpolator(video_times)
+	
+	return pred_video
+
 # ─────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────
@@ -283,12 +318,20 @@ def main():
 	mbe = _mbe(y, SAMPLE_RATE)
 	mbe = af.normalize(mbe, scaler)
 
-	# ── Labels for visualization only ─────────────────────
-	lbl = np.zeros((mbe.shape[0], 1), np.float32)
-	for _, h in hits.iterrows():
-		start = int(math.floor(h["start"] * SAMPLE_RATE / HOP_LENGTH))
-		end = int(math.ceil (h["end"]   * SAMPLE_RATE / HOP_LENGTH))
-		lbl[start:end, 0] = 1.0
+	# ── Prepare video I/O first to get fps and frame count ─────────
+	cap = cv2.VideoCapture(VIDEO_PATH)
+	fps = cap.get(cv2.CAP_PROP_FPS)
+	w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+	nf   = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+	cap.release()
+	
+	print(f"📹 Video: {nf} frames at {fps} fps")
+	print(f"🎵 Audio: {mbe.shape[0]} frames at {FPS_ORIG} fps (from train_constants.py)")
+
+	# ── Create ground truth in video space ─────────────────────────
+	print("🎯 Creating ground truth in video space...")
+	gt_video = create_ground_truth_in_video_space(hits, fps, nf)
+	print(f"✅ Ground truth: {np.sum(gt_video)} active frames out of {nf}")
 
 	# ── Inference windows ────────────────────────────────
 	win_x, win_starts = sliding_windows(mbe)
@@ -311,21 +354,19 @@ def main():
 	else:
 		raise RuntimeError("No predictions returned from model")
 
-	# ── Map to per-frame predictions ─────────────────────
-	pred_full = np.zeros(mbe.shape[0], np.float32)
+	# ── Map to per-frame predictions in audio space ───────────────
+	pred_audio = np.zeros(mbe.shape[0], np.float32)
 	for i, start in enumerate(win_starts):
-		pred_full[start:start + SEQ_LEN_OUT] = preds[i * SEQ_LEN_OUT : (i + 1) * SEQ_LEN_OUT]
+		pred_audio[start:start + SEQ_LEN_OUT] = preds[i * SEQ_LEN_OUT : (i + 1) * SEQ_LEN_OUT]
 
-	# ── Prepare video I/O ────────────────────────────────
-	cap = cv2.VideoCapture(VIDEO_PATH)
-	fps = cap.get(cv2.CAP_PROP_FPS)
-	w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-	nf   = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-	cap.release()
+	# ── Convert predictions to video space ─────────────────────────
+	print("🔄 Converting predictions from audio space to video space...")
+	pred_video = create_predictions_in_video_space(pred_audio, fps, nf)
+	print(f"✅ Predictions: {np.sum(pred_video > PREDICTION_THRESHOLD)} active frames out of {nf}")
 
-	# ── Create prediction dataframe ──────────────────────
+	# ── Create prediction dataframe ────────────────────────────────
 	print("📊 Creating prediction dataframe...")
-	df = create_frame_level_dataframe(pred_full, lbl, fps, nf)
+	df = create_frame_level_dataframe(pred_video, gt_video, fps, nf)
 	print(f"✅ Created dataframe with {len(df)} frames")
 	
 	# ── Create plot ──────────────────────────────────────
