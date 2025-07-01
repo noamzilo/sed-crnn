@@ -229,7 +229,8 @@ def create_video_overlay(frame_df, video_path, output_path, fps, width, height):
 	print("Unique frame colors in video:", frame_df['color'].unique())
 	
 	tmp_vid = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-	writer = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+	fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+	writer = cv2.VideoWriter(tmp_vid, fourcc, fps, (width, height))
 	cap = cv2.VideoCapture(video_path)
 
 	for i, row in frame_df.iterrows():
