@@ -54,7 +54,7 @@ def sliding_windows(mbe: np.ndarray, win: int = SEQ_LEN_IN, stride: int = SEQ_LE
 		starts.append(s)
 	return np.array(wins), np.array(starts)
 
-def create_prediction_dataframe(pred_full, lbl, fps, nf):
+def create_frame_level_dataframe(pred_full, lbl, fps, nf):
 	"""Create a dataframe with frame-level predictions and ground truth"""
 	# Align predictions to video frames
 	rep = int(math.ceil(nf / len(pred_full)))
@@ -70,16 +70,6 @@ def create_prediction_dataframe(pred_full, lbl, fps, nf):
 		'pred_binary': pred_aligned > PREDICTION_THRESHOLD,
 		'gt_binary': gt_aligned > 0.5
 	})
-	
-	# Add color classification
-	def get_color(row):
-		p, t = row['pred_binary'], row['gt_binary']
-		if t and p: return 'green'  # TP
-		elif p and not t: return 'yellow'  # FP
-		elif t and not p: return 'red'  # FN
-		else: return 'none'  # TN
-	
-	df['color'] = df.apply(get_color, axis=1)
 	
 	return df
 
@@ -99,56 +89,110 @@ def extract_intervals(binary_array):
 		intervals.append((start, len(binary_array) - 1))
 	return intervals
 
-def match_predictions_to_gt(df, fps, tolerance_sec=0.25):
-	"""Assign TP/FP/FN to predicted and ground truth hits with prediction-centric matching."""
-	pred_intervals = extract_intervals(df['pred_binary'].values)
-	gt_intervals = extract_intervals(df['gt_binary'].values)
-
+def create_intervals_dataframe(frame_df, fps, tolerance_sec=0.25):
+	"""Create a dataframe with event intervals and their classification (TP/FP/FN)"""
+	pred_intervals = extract_intervals(frame_df['pred_binary'].values)
+	gt_intervals = extract_intervals(frame_df['gt_binary'].values)
+	
+	# Calculate centers for matching
 	pred_centers = [((s + e) / 2) / fps for s, e in pred_intervals]
 	gt_centers = [((s + e) / 2) / fps for s, e in gt_intervals]
-
+	
+	# Match predictions to ground truth
 	matched_pred = set()
 	matched_gt = set()
-	# For each prediction, if within tolerance of any GT, mark as TP (green)
 	for i, pc in enumerate(pred_centers):
 		for j, gc in enumerate(gt_centers):
 			if abs(pc - gc) <= tolerance_sec:
 				matched_pred.add(i)
 				matched_gt.add(j)
 				break
-
-	return pred_intervals, gt_intervals, matched_pred, matched_gt
-
-def plot_predictions(df, hits, fps, save_path):
-	pred_intervals, gt_intervals, matched_pred, matched_gt = match_predictions_to_gt(df, fps, tolerance_sec=0.25)
-	fig, ax = plt.subplots(figsize=(15, 5))
-
-	# Shade TP (green)
-	for i, (s, e) in enumerate(pred_intervals):
-		if i in matched_pred:
-			ax.axvspan(s, e+1, alpha=0.4, color='green', zorder=0)
-	# Shade FP (yellow)
-	for i, (s, e) in enumerate(pred_intervals):
-		if i not in matched_pred:
-			ax.axvspan(s, e+1, alpha=0.4, color='yellow', zorder=0)
-	# Shade FN (red)
-	for j, (s, e) in enumerate(gt_intervals):
-		if j not in matched_gt:
-			ax.axvspan(s, e+1, alpha=0.4, color='red', zorder=0)
-
-	# Plot prediction
-	ax.plot(df['frame'], df['prediction'], 'b-', linewidth=1, label='Prediction')
-	# Plot ground truth as blue line (0 or 1)
-	ax.plot(df['frame'], df['ground_truth'], 'c-', linewidth=2, label='Ground Truth')
-
-	# Annotate ground truth hits with index
+	
+	# Create intervals dataframe
+	intervals_data = []
+	
+	# Add prediction intervals
+	for idx, (s, e) in enumerate(pred_intervals):
+		intervals_data.append({
+			'type': 'prediction',
+			'index': idx + 1,
+			'start_frame': s,
+			'end_frame': e,
+			'start_sec': s / fps,
+			'end_sec': e / fps,
+			'matched': idx in matched_pred,
+			'classification': 'TP' if idx in matched_pred else 'FP'
+		})
+	
+	# Add ground truth intervals
 	for idx, (s, e) in enumerate(gt_intervals):
+		intervals_data.append({
+			'type': 'ground_truth',
+			'index': idx + 1,
+			'start_frame': s,
+			'end_frame': e,
+			'start_sec': s / fps,
+			'end_sec': e / fps,
+			'matched': idx in matched_gt,
+			'classification': 'TP' if idx in matched_gt else 'FN'
+		})
+	
+	intervals_df = pd.DataFrame(intervals_data)
+	
+	# Update frame-level dataframe with colors
+	frame_df = frame_df.copy()
+	frame_df['color'] = 'none'  # Default color
+	
+	# Apply colors based on intervals
+	for _, interval in intervals_df.iterrows():
+		s, e = interval['start_frame'], interval['end_frame']
+		classification = interval['classification']
+		
+		if classification == 'TP':
+			frame_df.loc[s:e+1, 'color'] = 'green'
+		elif classification == 'FP':
+			frame_df.loc[s:e+1, 'color'] = 'yellow'
+		elif classification == 'FN':
+			frame_df.loc[s:e+1, 'color'] = 'red'
+	
+	return intervals_df, frame_df, pred_intervals, gt_intervals, matched_pred, matched_gt
+
+def plot_predictions(frame_df, intervals_df, fps, save_path):
+	"""Create prediction plot using the frame-level dataframe with colors"""
+	fig, ax = plt.subplots(figsize=(15, 5))
+	
+	# Get intervals for shading
+	pred_intervals = intervals_df[intervals_df['type'] == 'prediction']
+	gt_intervals = intervals_df[intervals_df['type'] == 'ground_truth']
+	
+	# Shade intervals based on classification
+	for _, interval in pred_intervals.iterrows():
+		s, e = interval['start_frame'], interval['end_frame']
+		classification = interval['classification']
+		if classification == 'TP':
+			ax.axvspan(s, e+1, alpha=0.4, color='green', zorder=0)
+		elif classification == 'FP':
+			ax.axvspan(s, e+1, alpha=0.4, color='yellow', zorder=0)
+	
+	for _, interval in gt_intervals.iterrows():
+		s, e = interval['start_frame'], interval['end_frame']
+		classification = interval['classification']
+		if classification == 'FN':
+			ax.axvspan(s, e+1, alpha=0.4, color='red', zorder=0)
+	
+	# Plot prediction
+	ax.plot(frame_df['frame'], frame_df['prediction'], 'b-', linewidth=1, label='Prediction')
+	# Plot ground truth as blue line (0 or 1)
+	ax.plot(frame_df['frame'], frame_df['ground_truth'], 'c-', linewidth=2, label='Ground Truth')
+	
+	# Annotate ground truth hits with index
+	for idx, (_, interval) in enumerate(gt_intervals.iterrows()):
+		s, e = interval['start_frame'], interval['end_frame']
 		center = (s + e) // 2
 		ax.text(center, 1.05, str(idx+1), color='blue', ha='center', va='bottom', fontsize=10, fontweight='bold')
-
+	
 	# Add dashed horizontal threshold line
 	ax.axhline(PREDICTION_THRESHOLD, color='black', linestyle='--', linewidth=1, label=f'Threshold={PREDICTION_THRESHOLD}')
-
 	ax.set_xlabel('Frame Number')
 	ax.set_ylabel('Score / Label')
 	ax.set_ylim(-0.05, 1.15)
@@ -160,75 +204,58 @@ def plot_predictions(df, hits, fps, save_path):
 	plt.close()
 	print(f"✅ Saved plot to: {save_path}")
 
-def dump_intervals_csv(df, fps, out_dir, basename):
-	pred_intervals, gt_intervals, matched_pred, matched_gt = match_predictions_to_gt(df, fps, tolerance_sec=0.25)
+def dump_intervals_csv(intervals_df, fps, out_dir, basename):
+	"""Dump intervals to CSV files"""
 	# GT CSV
-	gt_rows = []
-	for idx, (s, e) in enumerate(gt_intervals):
-		gt_rows.append({
-			'index': idx+1,
-			'start_frame': s,
-			'end_frame': e,
-			'start_sec': s / fps,
-			'end_sec': e / fps,
-			'matched': idx in matched_gt
-		})
-	gt_df = pd.DataFrame(gt_rows)
+	gt_df = intervals_df[intervals_df['type'] == 'ground_truth'].copy()
 	gt_df.to_csv(os.path.join(out_dir, f'{basename}_ground_truth.csv'), index=False)
+	
 	# Pred CSV
-	pred_rows = []
-	for idx, (s, e) in enumerate(pred_intervals):
-		pred_rows.append({
-			'index': idx+1,
-			'start_frame': s,
-			'end_frame': e,
-			'start_sec': s / fps,
-			'end_sec': e / fps,
-			'matched': idx in matched_pred
-		})
-	pred_df = pd.DataFrame(pred_rows)
+	pred_df = intervals_df[intervals_df['type'] == 'prediction'].copy()
 	pred_df.to_csv(os.path.join(out_dir, f'{basename}_predictions.csv'), index=False)
+	
 	# Both CSV
-	both_rows = []
-	for idx, (s, e) in enumerate(gt_intervals):
-		both_rows.append({
-			'type': 'GT',
-			'index': idx+1,
-			'start_frame': s,
-			'end_frame': e,
-			'start_sec': s / fps,
-			'end_sec': e / fps,
-			'matched': idx in matched_gt
-		})
-	for idx, (s, e) in enumerate(pred_intervals):
-		both_rows.append({
-			'type': 'Pred',
-			'index': idx+1,
-			'start_frame': s,
-			'end_frame': e,
-			'start_sec': s / fps,
-			'end_sec': e / fps,
-			'matched': idx in matched_pred
-		})
-	both_df = pd.DataFrame(both_rows)
-	both_df.to_csv(os.path.join(out_dir, f'{basename}_intervals.csv'), index=False)
+	intervals_df.to_csv(os.path.join(out_dir, f'{basename}_intervals.csv'), index=False)
 	print(f"✅ Saved CSVs to {out_dir}")
 
-def get_per_frame_colors(nf, pred_intervals, gt_intervals, matched_pred, matched_gt):
-	colors = np.array(['none'] * nf)
-	# TP (green)
-	for i, (s, e) in enumerate(pred_intervals):
-		if i in matched_pred:
-			colors[s:e+1] = 'green'
-	# FP (yellow)
-	for i, (s, e) in enumerate(pred_intervals):
-		if i not in matched_pred:
-			colors[s:e+1] = 'yellow'
-	# FN (red)
-	for j, (s, e) in enumerate(gt_intervals):
-		if j not in matched_gt:
-			colors[s:e+1] = 'red'
-	return colors
+def create_video_overlay(frame_df, video_path, output_path, fps, width, height):
+	"""Create video overlay using frame-level dataframe colors"""
+	print("🎬 Creating video overlay...")
+	print("Unique frame colors in video:", frame_df['color'].unique())
+	
+	tmp_vid = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+	writer = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+	cap = cv2.VideoCapture(video_path)
+
+	for i, row in frame_df.iterrows():
+		ret, frame = cap.read()
+		if not ret: 
+			break
+		
+		color = row['color']
+		if color == 'green':
+			frame = blend(frame, (0, 255, 0))
+		elif color == 'yellow':
+			frame = blend(frame, (0, 255, 255))
+		elif color == 'red':
+			frame = blend(frame, (0, 0, 255))
+		# else: do not blend
+		writer.write(frame)
+
+	cap.release()
+	writer.release()
+
+	# Remux original audio to keep sync
+	subprocess.check_call([
+		"ffmpeg", "-y", "-loglevel", "error",
+		"-i", tmp_vid,
+		"-i", video_path,
+		"-c:v", "copy",
+		"-map", "0:v:0", "-map", "1:a:0",
+		"-shortest", output_path
+	])
+	os.remove(tmp_vid)
+	print(f"✅ Saved {output_path}")
 
 # ─────────────────────────────────────────────────────────────
 # Main
@@ -298,49 +325,18 @@ def main():
 
 	# ── Create prediction dataframe ──────────────────────
 	print("📊 Creating prediction dataframe...")
-	df = create_prediction_dataframe(pred_full, lbl, fps, nf)
+	df = create_frame_level_dataframe(pred_full, lbl, fps, nf)
 	print(f"✅ Created dataframe with {len(df)} frames")
 	
 	# ── Create plot ──────────────────────────────────────
 	print("📈 Creating prediction plot...")
-	plot_predictions(df, hits, fps, PLOT_OUT_PATH)
+	intervals_df, frame_df, pred_intervals, gt_intervals, matched_pred, matched_gt = create_intervals_dataframe(df, fps, tolerance_sec=0.25)
+	plot_predictions(frame_df, intervals_df, fps, PLOT_OUT_PATH)
 	# ── Dump CSVs ────────────────────────────────────────
-	dump_intervals_csv(df, fps, OUT_DIR, BASENAME)
+	dump_intervals_csv(intervals_df, fps, OUT_DIR, BASENAME)
 
-	# ── Prepare video I/O ────────────────────────────────
-	print("🎬 Creating video overlay...")
-	pred_intervals, gt_intervals, matched_pred, matched_gt = match_predictions_to_gt(df, fps, tolerance_sec=0.25)
-	frame_colors = get_per_frame_colors(nf, pred_intervals, gt_intervals, matched_pred, matched_gt)
-	tmp_vid = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-	writer  = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, (w, h))
-	cap = cv2.VideoCapture(VIDEO_PATH)
-
-	for i in range(nf):
-		ret, frame = cap.read()
-		if not ret: break
-		color = frame_colors[i]
-		if color == 'green':
-			frame = blend(frame, (0, 255, 0))
-		elif color == 'yellow':
-			frame = blend(frame, (0, 255, 255))
-		elif color == 'red':
-			frame = blend(frame, (0, 0, 255))
-		writer.write(frame)
-
-	cap.release()
-	writer.release()
-
-	# ── Remux original audio to keep sync ────────────────
-	subprocess.check_call([
-		"ffmpeg", "-y", "-loglevel", "error",
-		"-i", tmp_vid,
-		"-i", VIDEO_PATH,
-		"-c:v", "copy",
-		"-map", "0:v:0", "-map", "1:a:0",
-		"-shortest", VIDEO_OUT_PATH
-	])
-	os.remove(tmp_vid)
-	print(f"✅ Saved {VIDEO_OUT_PATH}")
+	# ── Create video overlay ──────────────────────────────
+	create_video_overlay(frame_df, VIDEO_PATH, VIDEO_OUT_PATH, fps, w, h)
 
 if __name__ == "__main__":
 	main()
