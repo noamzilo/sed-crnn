@@ -6,14 +6,12 @@ single_video_demo.py
 Demo script to verify SedRcnnInference class works with a single video.
 """
 
-import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from SedRcnnInference import SedRcnnInference
+from sed_crnn.SedRcnnInference import SedRcnnInference
 
 def main():
 	# Configuration
-	CKPT_PATH = "/home/noams/src/plai_cv/sed-crnn/train_artifacts/20250630_182940/fold1/epochepoch=015-valerval_er_1s=0.150.ckpt"
+	CKPT_PATH = "/sed-crnn/train_artifacts/20250630_182940/fold1/epochepoch=015-valerval_er_1s=0.150.ckpt"
 	VIDEO_PATH = "/home/noams/src/plai_cv/data/decorte/rallies/20230528_VIGO_04.mp4"
 	OUTPUT_DIR = "/home/noams/src/plai_cv/output/test_single_video"
 	

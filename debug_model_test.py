@@ -18,7 +18,7 @@ from sklearn.preprocessing import StandardScaler
 # ─────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────
-CKPT_PATH = "/home/noams/src/plai_cv/sed-crnn/train_artifacts/20250629_190557/fold1/epochepoch=026-valerval_er_1s=0.142.ckpt"
+CKPT_PATH = "/sed-crnn/train_artifacts/20250629_190557/fold1/epochepoch=026-valerval_er_1s=0.142.ckpt"
 CACHE_DIR = os.path.expanduser("~/src/plai_cv/cache/decorte_metadata/features")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 

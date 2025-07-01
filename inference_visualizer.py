@@ -30,7 +30,7 @@ from scipy.interpolate import interp1d
 # Paths (edit if needed)
 # ─────────────────────────────────────────────────────────────
 VIDEO_PATH		= "/home/noams/src/plai_cv/data/decorte/rallies/20230528_VIGO_04.mp4"
-CKPT_PATH		= "/home/noams/src/plai_cv/sed-crnn/train_artifacts/20250630_182940/fold1/epochepoch=015-valerval_er_1s=0.150.ckpt"
+CKPT_PATH		= "/sed-crnn/train_artifacts/20250630_182940/fold1/epochepoch=015-valerval_er_1s=0.150.ckpt"
 OUT_DIR			= "/home/noams/src/plai_cv/output/visualizations"
 os.makedirs(OUT_DIR, exist_ok=True)
 BASENAME		= os.path.splitext(os.path.basename(VIDEO_PATH))[0]

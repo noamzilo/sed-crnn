@@ -25,7 +25,7 @@ from decorte_data_loader import load_decorte_dataset
 # ─────────────────────────────────────────────────────────────
 # Configuration (edit these values as needed)
 # ─────────────────────────────────────────────────────────────
-CKPT_PATH = "/home/noams/src/plai_cv/sed-crnn/train_artifacts/20250630_182940/fold1/epochepoch=015-valerval_er_1s=0.150.ckpt"
+CKPT_PATH = "/sed-crnn/train_artifacts/20250630_182940/fold1/epochepoch=015-valerval_er_1s=0.150.ckpt"
 VIDEOS_DIR = "/home/noams/src/plai_cv/data/decorte/rallies"
 OUTPUT_DIR = "/home/noams/src/plai_cv/output/batch_visualizations"
 VAL_FOLD = 0  # Fold ID to use as validation set (0-3)
