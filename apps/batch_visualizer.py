@@ -15,7 +15,9 @@ Each video gets its own folder with:
 
 import os
 import glob
+import sys
 from pathlib import Path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from SedRcnnInference import SedRcnnInference
 from decorte_data_loader import load_decorte_dataset
 

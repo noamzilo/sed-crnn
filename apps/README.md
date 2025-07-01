@@ -7,17 +7,17 @@ This directory contains applications for batch processing videos using the `SedR
 - `SedRcnnInference.py` - Main inference and visualization class
 - `batch_visualizer.py` - Simple batch processor (fold 0 = val, others = train)
 - `fold_based_visualizer.py` - Flexible batch processor with configurable validation fold
-- `test_single_video.py` - Test script for single video processing
+- `single_video_demo.py` - Demo script for single video processing
 
 ## Usage
 
-### Test Single Video
+### Demo Single Video
 
 First, test that everything works with a single video:
 
 ```bash
 cd sed-crnn/apps
-python test_single_video.py
+python single_video_demo.py
 ```
 
 ### Simple Batch Processing

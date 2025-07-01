@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-test_single_video.py
+single_video_demo.py
 
-Test script to verify SedRcnnInference class works with a single video.
+Demo script to verify SedRcnnInference class works with a single video.
 """
 
 import os
 import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from SedRcnnInference import SedRcnnInference
 
 def main():
