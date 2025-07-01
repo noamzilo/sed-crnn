@@ -286,9 +286,9 @@ def main():
 	# ── Labels for visualization only ─────────────────────
 	lbl = np.zeros((mbe.shape[0], 1), np.float32)
 	for _, h in hits.iterrows():
-		s = int(math.floor(h["start"] * SAMPLE_RATE / HOP_LENGTH))
-		e = int(math.ceil (h["end"]   * SAMPLE_RATE / HOP_LENGTH))
-		lbl[s:e, 0] = 1.0
+		start = int(math.floor(h["start"] * SAMPLE_RATE / HOP_LENGTH))
+		end = int(math.ceil (h["end"]   * SAMPLE_RATE / HOP_LENGTH))
+		lbl[start:end, 0] = 1.0
 
 	# ── Inference windows ────────────────────────────────
 	win_x, win_starts = sliding_windows(mbe)
@@ -313,8 +313,8 @@ def main():
 
 	# ── Map to per-frame predictions ─────────────────────
 	pred_full = np.zeros(mbe.shape[0], np.float32)
-	for i, s in enumerate(win_starts):
-		pred_full[s:s + SEQ_LEN_OUT] = preds[i * SEQ_LEN_OUT : (i + 1) * SEQ_LEN_OUT]
+	for i, start in enumerate(win_starts):
+		pred_full[start:start + SEQ_LEN_OUT] = preds[i * SEQ_LEN_OUT : (i + 1) * SEQ_LEN_OUT]
 
 	# ── Prepare video I/O ────────────────────────────────
 	cap = cv2.VideoCapture(VIDEO_PATH)
