@@ -207,6 +207,14 @@ class CRNNInferenceVisualizer:
 			)
 			pred_scaled = pred_audio_upsampled * np.max(np.abs(y))
 			axes[0].plot(t_audio, pred_scaled, color='b', alpha=0.7, label='Prediction (scaled)')
+			# Overlay ground truth as a red mask at 1/8 of the plot height
+			if frame_df is not None:
+				gt_mask = frame_df['gt_binary'].values.astype(float)
+				if len(gt_mask) != len(t_audio):
+					gt_mask = np.interp(t_audio, t_video, gt_mask)
+				y_min, y_max = axes[0].get_ylim()
+				height = (y_max - y_min) / 8
+				axes[0].fill_between(t_audio, y_min, y_min + gt_mask * height, color='red', alpha=0.4, label='GT Hit')
 			axes[0].legend(loc='upper right')
 			axes[0].set_xlim([0, t_audio[-1]])
 
@@ -247,6 +255,12 @@ class CRNNInferenceVisualizer:
 			t_e = (e+1) / fps
 			if classification == 'FN':
 				ax.axvspan(t_s, t_e, alpha=0.4, color='red', zorder=0)
+		# Overlay ground truth as a red mask at 1/8 of the plot height
+		if frame_df is not None:
+			gt_mask = frame_df['gt_binary'].values.astype(float)
+			y_min, y_max = ax.get_ylim()
+			height = (y_max - y_min) / 8
+			ax.fill_between(t_video, y_min, y_min + gt_mask * height, color='red', alpha=0.4, label='GT Hit')
 		# Plot prediction and ground truth (aligned x)
 		ax.plot(t_video, frame_df['prediction'], 'b-', linewidth=1, label='Prediction')
 		ax.plot(t_video, frame_df['ground_truth'], 'c-', linewidth=2, label='Ground Truth')
