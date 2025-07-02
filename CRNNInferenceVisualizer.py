@@ -1,51 +1,57 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SedRcnnInference.py
+CRNNInferenceVisualizer.py
 
-SED-CRNN inference and visualization class for batch processing.
-Generate a same-fps MP4 with synced audio and an alpha-blended
-hit-detection overlay (green = TP, yellow = FP, red = FN).
+Unified SED-CRNN inference and visualization class.
+Handles both single and batch video processing with consistent configuration.
 
-✓	in-memory feature extraction (log-Mel)
-✓	sliding-window inference with CRNNLightning
-✓	alpha overlay per frame
-✓	remuxes original audio to keep sync
-✓	tabs only
-✓	dataframe collection first
-✓	plot with color-coded regions
+Responsibilities:
+- Model inference and prediction generation
+- Video overlay creation with hit detection visualization
+- Plot generation and CSV export
+- Batch processing orchestration
+- Train/val split organization
 """
 
-import os, subprocess, tempfile, math, cv2, torch, numpy as np
+import os
+import glob
+import subprocess
+import tempfile
+import math
+import cv2
+import torch
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pytorch_lightning import Trainer
-from decorte_data_loader import load_decorte_dataset
-from audio_features import _ffmpeg_audio, _mbe
-from crnn_lightning import CRNNLightning
-import audio_features as af
-from train_constants import *
+from sed_crnn.decorte_data_loader import load_decorte_dataset
+from sed_crnn.audio_features import _ffmpeg_audio, _mbe
+from sed_crnn.crnn_lightning import CRNNLightning
+import sed_crnn.audio_features as af
+from sed_crnn.train_constants import *
 from scipy.interpolate import interp1d
 
-class SedRcnnInference:
+class CRNNInferenceVisualizer:
 	"""
-	Class for SED-CRNN inference and visualization of hit detection results on videos.
+	Unified SED-CRNN inference and visualization class.
+	Processes single or multiple videos with consistent configuration.
 	"""
 	
-	def __init__(self, ckpt_path: str, output_base_dir: str, alpha: float = 0.5, 
+	def __init__(self, ckpt_path: str, output_dir: str, alpha: float = 0.5, 
 				 prediction_threshold: float = 0.5, device: str = None):
 		"""
-		Initialize the SED-CRNN inference visualizer.
+		Initialize the CRNN inference visualizer.
 		
 		Args:
 			ckpt_path: Path to the model checkpoint
-			output_base_dir: Base directory for outputs
+			output_dir: Base directory for outputs
 			alpha: Alpha blending factor for overlay
 			prediction_threshold: Threshold for binary predictions
 			device: Device to use for inference (auto-detect if None)
 		"""
 		self.ckpt_path = ckpt_path
-		self.output_base_dir = output_base_dir
+		self.output_dir = output_dir
 		self.alpha = alpha
 		self.prediction_threshold = prediction_threshold
 		self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,7 +60,7 @@ class SedRcnnInference:
 		self.meta_all = load_decorte_dataset()
 		
 		# Create output directories
-		os.makedirs(output_base_dir, exist_ok=True)
+		os.makedirs(output_dir, exist_ok=True)
 	
 	def blend(self, frame, color):
 		"""Blend frame with color overlay."""
@@ -298,22 +304,90 @@ class SedRcnnInference:
 		
 		return pred_video
 	
-	def process_video(self, video_path: str, output_dir: str = None) -> dict:
+	def visualize_videos(self, video_paths: list, val_fold: int = 0) -> list:
 		"""
-		Process a single video and generate visualizations.
+		Process multiple videos and organize outputs into train/val folders.
+		
+		Args:
+			video_paths: List of absolute paths to video files
+			val_fold: Fold ID to use as validation set (0-3)
+			
+		Returns:
+			list: Processing results for each video
+		"""
+		# Validate fold ID
+		if not 0 <= val_fold <= 3:
+			raise ValueError("val_fold must be between 0 and 3")
+		
+		# Create train/val output directories
+		train_output_dir = os.path.join(self.output_dir, "train")
+		val_output_dir = os.path.join(self.output_dir, "val")
+		os.makedirs(train_output_dir, exist_ok=True)
+		os.makedirs(val_output_dir, exist_ok=True)
+		
+		print("🚀 Starting video processing...")
+		print(f"📁 Train output: {train_output_dir}")
+		print(f"📁 Val output: {val_output_dir}")
+		print(f"🎯 Validation fold: {val_fold}")
+		print(f"🎬 Processing {len(video_paths)} videos")
+		
+		# Process each video
+		results = []
+		train_count = 0
+		val_count = 0
+		
+		for video_path in video_paths:
+			vname = os.path.basename(video_path)
+			
+			# Check if video is in metadata
+			if vname not in self.meta_all:
+				print(f"⚠️  Skipping {vname} - not in metadata")
+				continue
+			
+			# Get fold assignment
+			fold_id = self.meta_all[vname]["fold_id"]
+			
+			# Determine output directory based on fold
+			basename = os.path.splitext(vname)[0]
+			if fold_id == val_fold:  # Validation set
+				output_dir = os.path.join(val_output_dir, basename)
+				split = 'val'
+				val_count += 1
+			else:  # Training set
+				output_dir = os.path.join(train_output_dir, basename)
+				split = 'train'
+				train_count += 1
+			
+			print(f"\n🎯 Processing {vname} (fold {fold_id}) -> {split} -> {output_dir}")
+			
+			try:
+				# Process the video
+				result = self._process_video_internal(video_path, output_dir)
+				result['fold_id'] = fold_id
+				result['split'] = split
+				results.append(result)
+				print(f"✅ Successfully processed {vname}")
+				
+			except Exception as e:
+				print(f"❌ Error processing {vname}: {str(e)}")
+				continue
+		
+		# Print summary
+		self._print_summary(results, train_count, val_count, val_fold)
+		
+		return results
+	
+	def _process_video_internal(self, video_path: str, output_dir: str) -> dict:
+		"""
+		Internal method to process a single video and generate visualizations.
 		
 		Args:
 			video_path: Path to the input video
-			output_dir: Output directory (if None, uses video name in base output dir)
+			output_dir: Output directory
 			
 		Returns:
 			dict: Processing results and paths
 		"""
-		# Determine output directory
-		if output_dir is None:
-			basename = os.path.splitext(os.path.basename(video_path))[0]
-			output_dir = os.path.join(self.output_base_dir, basename)
-		
 		os.makedirs(output_dir, exist_ok=True)
 		
 		# Load metadata & hits
@@ -417,4 +491,44 @@ class SedRcnnInference:
 			'prediction_frames': np.sum(pred_video > self.prediction_threshold),
 			'gt_frames': np.sum(gt_video),
 			'intervals_df': intervals_df
-		} 
+		}
+	
+	def _print_summary(self, results, train_count, val_count, val_fold):
+		"""Print processing summary."""
+		print(f"\n📊 Processing Summary:")
+		print(f"Total videos processed: {len(results)}")
+		print(f"Train videos: {train_count}")
+		print(f"Val videos: {val_count}")
+		
+		train_results = [r for r in results if r['split'] == 'train']
+		val_results = [r for r in results if r['split'] == 'val']
+		
+		if train_results:
+			train_hits = sum(r['num_hits'] for r in train_results)
+			train_pred_frames = sum(r['prediction_frames'] for r in train_results)
+			train_gt_frames = sum(r['gt_frames'] for r in train_results)
+			print(f"Train total hits: {train_hits}")
+			print(f"Train total prediction frames: {train_pred_frames}")
+			print(f"Train total ground truth frames: {train_gt_frames}")
+		
+		if val_results:
+			val_hits = sum(r['num_hits'] for r in val_results)
+			val_pred_frames = sum(r['prediction_frames'] for r in val_results)
+			val_gt_frames = sum(r['gt_frames'] for r in val_results)
+			print(f"Val total hits: {val_hits}")
+			print(f"Val total prediction frames: {val_pred_frames}")
+			print(f"Val total ground truth frames: {val_gt_frames}")
+		
+		# Print fold distribution
+		print(f"\n📈 Fold Distribution:")
+		fold_counts = {}
+		for result in results:
+			fold = result['fold_id']
+			fold_counts[fold] = fold_counts.get(fold, 0) + 1
+		
+		for fold in sorted(fold_counts.keys()):
+			status = "VAL" if fold == val_fold else "TRAIN"
+			print(f"  Fold {fold}: {fold_counts[fold]} videos ({status})")
+		
+		print(f"\n🎉 Batch processing complete!")
+		print(f"📁 Check outputs in: {self.output_dir}") 

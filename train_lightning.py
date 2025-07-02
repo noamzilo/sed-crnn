@@ -38,7 +38,7 @@ def _tee_to_file(path: str):
 MAX_EPOCHS		= 200
 EARLY_STOP		= 20
 CACHE_DIR		= os.path.expanduser("~/src/plai_cv/cache/decorte_metadata/features")
-ART_DIR_ROOT	= os.path.expanduser(f"~/src/plai_cv/sed-crnn/train_artifacts/{datetime.datetime.now():%Y%m%d_%H%M%S}")
+ART_DIR_ROOT	= os.path.expanduser(f"~/src/plai_cv/sed_crnn/train_artifacts/{datetime.datetime.now():%Y%m%d_%H%M%S}")
 DEVICE_TYPE		= 'gpu' if torch.cuda.is_available() else 'cpu'
 
 os.makedirs(ART_DIR_ROOT, exist_ok=True)

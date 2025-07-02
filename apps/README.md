@@ -1,116 +1,144 @@
-# SED-CRNN Batch Visualization Apps
+# SED-CRNN Video Processing
 
-This directory contains applications for batch processing videos using the `SedRcnnInference` class.
+This directory contains the unified SED-CRNN video processing application.
 
-## Files
+## Structure
 
-- `SedRcnnInference.py` - Main inference and visualization class
-- `batch_visualizer.py` - Simple batch processor (fold 0 = val, others = train)
-- `fold_based_visualizer.py` - Flexible batch processor with configurable validation fold
-- `single_video_demo.py` - Demo script for single video processing
+- `CRNNInferenceVisualizer.py` - Unified class for video processing
+- `run_visualizer.py` - Single runner script with switch case for video selection
 
-## Usage
+## Architecture
 
-### Demo Single Video
+### CRNNInferenceVisualizer Responsibilities
+- **Model Inference**: Loading model, sliding window inference, prediction generation
+- **Video Processing**: Audio extraction, feature computation, video overlay creation
+- **Visualization**: Plot generation, CSV export, color-coded hit detection
+- **Batch Orchestration**: Train/val split organization, batch processing coordination
 
-First, test that everything works with a single video:
+### Single Method Interface
+- `visualize_videos(video_paths, val_fold)` - **Only method** that takes a list of video paths
+- Single video = list with one video path
+- Batch processing = list with multiple video paths
+- Same code path, same configuration, same output structure
 
-```bash
-cd sed-crnn/apps
-python single_video_demo.py
+### Switch Case in Runner
+The runner uses a simple switch case to choose which video paths to feed in:
+```python
+if MODE == "single":
+    video_paths = [SINGLE_VIDEO_PATH]
+elif MODE == "batch":
+    video_paths = glob.glob(os.path.join(VIDEOS_DIR, "*.mp4"))
+
+results = visualizer.visualize_videos(video_paths, val_fold=VAL_FOLD)
 ```
 
-### Simple Batch Processing
+## Quick Start
 
-Process all videos with fold 0 as validation:
+### Configuration
 
-```bash
-cd sed-crnn/apps
-python batch_visualizer.py
+Edit the configuration at the top of `run_visualizer.py`:
+
+```python
+# Model checkpoint path
+CHECKPOINT_PATH = "models/sed_crnn_fold0.ckpt"
+
+# Directory containing video files (for batch processing)
+VIDEOS_DIR = "data/decorte/rallies"
+
+# Single video path (for single video processing)
+SINGLE_VIDEO_PATH = "data/decorte/rallies/sample_video.mp4"
+
+# Base output directory
+OUTPUT_DIR = "output/visualization"
+
+# Validation fold (0-3) - only used for batch processing
+VAL_FOLD = 0
+
+# Alpha blending factor for video overlay (0.0-1.0)
+ALPHA = 0.5
+
+# Prediction threshold for binary classification
+PREDICTION_THRESHOLD = 0.5
+
+# Device to use (empty string for auto-detect, or "cuda", "cpu")
+DEVICE = ""
+
+# Processing mode: "single" or "batch"
+MODE = "batch"
 ```
 
-### Flexible Batch Processing
+### Usage
 
-Process all videos with configurable validation fold:
+1. **Single Video Processing:**
+   ```bash
+   cd sed_crnn/apps
+   # Edit MODE = "single" in run_visualizer.py
+   python run_visualizer.py
+   ```
 
-```bash
-cd sed-crnn/apps
-
-# Edit the configuration at the top of fold_based_visualizer.py first:
-# - VAL_FOLD: Which fold to use as validation (0-3)
-# - ALPHA: Alpha blending factor (0.0-1.0)
-# - THRESHOLD: Prediction threshold (0.0-1.0)
-# - CKPT_PATH: Path to model checkpoint
-# - OUTPUT_DIR: Output directory
-
-# Then run:
-python fold_based_visualizer.py
-```
-
-## Configuration (fold_based_visualizer.py)
-
-Edit these values at the top of the file:
-
-- `CKPT_PATH`: Path to model checkpoint
-- `VIDEOS_DIR`: Directory containing video files
-- `OUTPUT_DIR`: Base output directory
-- `VAL_FOLD`: Fold ID to use as validation set (0-3)
-- `ALPHA`: Alpha blending factor for video overlay (0.0-1.0)
-- `THRESHOLD`: Prediction threshold for binary classification (0.0-1.0)
-- `DEVICE`: Device to use (empty string for auto-detect)
+2. **Batch Processing:**
+   ```bash
+   cd sed_crnn/apps
+   # Edit MODE = "batch" in run_visualizer.py
+   python run_visualizer.py
+   ```
 
 ## Output Structure
 
+### Single Video
 ```
-output/
+output/visualization/
 ├── train/
-│   ├── 20230528_VIGO_00/
-│   │   ├── 20230528_VIGO_00_overlay.mp4
-│   │   ├── 20230528_VIGO_00_predictions.png
-│   │   ├── 20230528_VIGO_00_ground_truth.csv
-│   │   ├── 20230528_VIGO_00_predictions.csv
-│   │   └── 20230528_VIGO_00_intervals.csv
-│   └── ...
-└── val/
-    ├── 20230528_VIGO_04/
-    │   ├── 20230528_VIGO_04_overlay.mp4
-    │   ├── 20230528_VIGO_04_predictions.png
-    │   ├── 20230528_VIGO_04_ground_truth.csv
-    │   ├── 20230528_VIGO_04_predictions.csv
-    │   └── 20230528_VIGO_04_intervals.csv
-    └── ...
+│   └── video_name/
+│       ├── video_name_predictions.png
+│       ├── video_name_overlay.mp4
+│       ├── video_name_ground_truth.csv
+│       ├── video_name_predictions.csv
+│       └── video_name_intervals.csv
 ```
 
-## Output Files
+### Batch Processing
+```
+output/visualization/
+├── train/
+│   ├── video1/
+│   │   ├── video1_predictions.png
+│   │   ├── video1_overlay.mp4
+│   │   └── ...
+│   └── video2/
+│       └── ...
+└── val/
+    ├── video3/
+    │   ├── video3_predictions.png
+    │   ├── video3_overlay.mp4
+    │   └── ...
+    └── video4/
+        └── ...
+```
 
-For each video, the following files are generated:
+## Features
 
-- `*_overlay.mp4`: Video with color-coded hit detection overlay
-  - Green: True Positive (TP)
-  - Yellow: False Positive (FP)
-  - Red: False Negative (FN)
-- `*_predictions.png`: Plot showing predictions vs ground truth
-- `*_ground_truth.csv`: Ground truth intervals
-- `*_predictions.csv`: Prediction intervals
-- `*_intervals.csv`: Combined intervals with classifications
+- **Unified Processing**: Single `visualize_videos()` method handles all processing
+- **Switch Case Selection**: Simple mode switch to choose video paths
+- **Consistent Configuration**: Same paths, same parameters for all modes
+- **Video Overlay**: Alpha-blended hit detection visualization
+  - Green: True Positives (TP)
+  - Yellow: False Positives (FP)  
+  - Red: False Negatives (FN)
+- **Prediction Plots**: Time-series plots with color-coded regions
+- **CSV Exports**: Detailed interval analysis and classifications
+- **Fold-based Organization**: Automatic train/val split based on fold assignments
+- **Error Handling**: Graceful handling of missing files and processing errors
 
-## Fold Assignments
+## Dependencies
 
-The Decorte dataset uses 4-fold cross-validation. Each video is assigned to one of 4 folds (0-3). You can specify which fold to use as the validation set, and all other folds will be treated as training data.
+- `sed_crnn.CRNNInferenceVisualizer` - Unified inference and visualization class
+- `sed_crnn.decorte_data_loader` - Dataset metadata loading
+- PyTorch, OpenCV, Matplotlib, Pandas
 
-## Requirements
+## Troubleshooting
 
-- Python 3.8+
-- PyTorch
-- OpenCV
-- Matplotlib
-- Pandas
-- PyTorch Lightning
-- FFmpeg (for video processing)
-
-## Notes
-
-- The apps automatically skip videos that are not in the Decorte metadata
-- Processing time depends on video length and hardware
-- GPU acceleration is automatically used if available
-- All outputs maintain the original video's audio synchronization 
+1. **Import Errors**: Make sure you're running from the project root or the `sed_crnn/apps` directory
+2. **Missing Files**: Check that checkpoint and video paths are correct
+3. **CUDA Issues**: Set `DEVICE = "cpu"` if GPU is not available
+4. **Memory Issues**: Reduce batch size in the visualizer if needed 
