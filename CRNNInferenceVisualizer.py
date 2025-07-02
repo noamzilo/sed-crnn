@@ -261,9 +261,8 @@ class CRNNInferenceVisualizer:
 			y_min, y_max = ax.get_ylim()
 			height = (y_max - y_min) / 8
 			ax.fill_between(t_video, y_min, y_min + gt_mask * height, color='red', alpha=0.4, label='GT Hit')
-		# Plot prediction and ground truth (aligned x)
+		# Plot prediction only (aligned x)
 		ax.plot(t_video, frame_df['prediction'], 'b-', linewidth=1, label='Prediction')
-		ax.plot(t_video, frame_df['ground_truth'], 'c-', linewidth=2, label='Ground Truth')
 		for idx, (_, interval) in enumerate(gt_intervals.iterrows()):
 			s, e = interval['start_frame'], interval['end_frame']
 			center = ((s + e) / 2) / fps
@@ -276,6 +275,19 @@ class CRNNInferenceVisualizer:
 		ax.set_title('Hit Detection Predictions vs Ground Truth (with Tolerance)')
 		ax.grid(True, alpha=0.3)
 		ax.legend()
+
+		# Set x-ticks at every second for all subplots and ensure tick labels are visible on all axes
+		if y is not None:
+			total_time = t_audio[-1]
+		else:
+			total_time = t_video[-1]
+		max_sec = int(np.ceil(total_time))
+		sec_ticks = np.arange(0, max_sec + 1, 1)
+		for axx in axes:
+			axx.set_xticks(sec_ticks)
+			axx.set_xticklabels([str(int(t)) for t in sec_ticks])
+			axx.tick_params(axis='x', which='both', labelbottom=True)
+
 		plt.tight_layout()
 		plt.savefig(save_path, dpi=300, bbox_inches='tight')
 		plt.close()
