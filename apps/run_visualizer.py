@@ -24,7 +24,7 @@ VIDEOS_DIR = "../../data/decorte/rallies"
 SINGLE_VIDEO_PATH = "../../data/decorte/rallies/20230528_VIGO_00.mp4"
 
 # Base output directory
-OUTPUT_DIR = "output/visualization"
+OUTPUT_DIR = "../../output/visualization"
 
 # Validation fold (0-3) - only used for batch processing
 VAL_FOLD = 0
@@ -112,7 +112,7 @@ def main():
 		abs_path = os.path.abspath(path)
 		# WSL home translation
 		wsl_home = '/home/noams'
-		windows_home = r'\\wsl.localhost\\Ubuntu\\home\\noams'
+		windows_home = r'\\wsl.localhost\Ubuntu\home\noams'  # Single backslashes for UNC
 		if abs_path.startswith(wsl_home):
 			win_path = windows_home + abs_path[len(wsl_home):]
 		else:
