@@ -15,7 +15,7 @@ Usage:
 # =============================================================================
 
 # Model checkpoint path
-CHECKPOINT_PATH = "../../sed_crnn/train_artifacts/20250701_221947/fold1/epochepoch=022-valerval_er_1s=0.150.ckpt"
+CHECKPOINT_PATH = "../../sed_crnn/train_artifacts/20250702_153216/fold1/epochepoch=019-valerval_er_1s=0.151.ckpt"
 
 # Directory containing video files (for batch processing)
 VIDEOS_DIR = "../../data/decorte/rallies"
