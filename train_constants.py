@@ -4,7 +4,7 @@ import math
 #  Constants (identical defaults + aug params)
 # ────────────────────────────────────────────────────────────────
 SEQ_LEN_IN		= 64
-TIME_POOL = [2, 2, 2]
+TIME_POOL = [2,]
 SEQ_LEN_OUT = int(SEQ_LEN_IN // math.prod(TIME_POOL))
 CACHE_DIR		= os.path.expanduser("~/src/plai_cv/cache/decorte_metadata/features")
 BATCH_SIZE		= 128
@@ -22,7 +22,7 @@ FPS_OUT					= FPS_ORIG // math.prod(TIME_POOL)
 
 # Architecture config
 N_MELS				= 40		# used in dummy input + feature extraction
-CONV_DEPTH			= 16		# was 64; reduce for fewer params
+CONV_DEPTH			= 32		# was 64; reduce for fewer params
 GRU1_UNITS			= 16		# was 32
 GRU2_UNITS			= 8 		# was 16
 DENSE1_UNITS		= 8			# was 16
