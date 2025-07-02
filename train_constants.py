@@ -26,3 +26,6 @@ CONV_DEPTH			= 16		# was 64; reduce for fewer params
 GRU1_UNITS			= 16		# was 32
 GRU2_UNITS			= 8 		# was 16
 DENSE1_UNITS		= 8			# was 16
+
+# Loss function selection
+LOSS_TYPE = "cross_entropy"  # Options: 'cross_entropy', 'focal'

@@ -16,7 +16,7 @@ import joblib
 
 from train_constants import *
 from decorte_data_loader import load_decorte_dataset
-import audio_features as af								# ← shared helpers
+import sed_crnn.audio_features as af								# ← shared helpers
 
 # ───────────────────────────────────────────────
 #  SpecAugment (unchanged)

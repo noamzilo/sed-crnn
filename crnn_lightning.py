@@ -9,7 +9,7 @@ Tabs only.
 
 import os, matplotlib
 
-from . import metrics
+from sed_crnn import metrics
 
 matplotlib.use('Agg')				# no GUI required
 import matplotlib.pyplot as plt
@@ -17,10 +17,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from .train_constants import (
+from sed_crnn.train_constants import (
 	SEQ_LEN_IN, TIME_POOL, SEQ_LEN_OUT,
 	FPS_OUT, N_MELS, CONV_DEPTH,
-	GRU1_UNITS, GRU2_UNITS, DENSE1_UNITS
+	GRU1_UNITS, GRU2_UNITS, DENSE1_UNITS,
+	LOSS_TYPE
 )
 
 EPS = 1e-12
@@ -86,7 +87,10 @@ class CRNNLightning(pl.LightningModule):
 		self.save_hyperparameters(ignore=["art_dir"])
 		self.art_dir = art_dir
 		self.model   = TimePooledCRNN(dropout)
-		self.loss_fn = FocalBCELoss()
+		if LOSS_TYPE == "focal":
+			self.loss_fn = FocalBCELoss()
+		else:
+			self.loss_fn = nn.BCEWithLogitsLoss()
 
 		self._buf = {m: {"preds":[], "trues":[], "losses":[]} for m in ["train","val"]}
 		self.track = {k:[] for k in [
@@ -157,7 +161,7 @@ class CRNNLightning(pl.LightningModule):
 			ax.set_xlabel("Pred"); ax.set_ylabel("True"); ax.set_title(title)
 		_cm(plt.subplot(2,3,4), tr["cm"], f"Train CM (e{ep})")
 		_cm(plt.subplot(2,3,5), val["cm"], f"Val CM (e{ep})")
-		out = os.path.join(self.art_dir, f"metrics_fold{self.hparams.fold_id}.png")
+		out = os.path.join(self.art_dir, f"metrics_fold{self.hparams['fold_id']}.png")
 		plt.tight_layout(); plt.savefig(out); plt.close()
 		print(f"📈 Saved metrics → {out}")
 
@@ -203,8 +207,8 @@ class CRNNLightning(pl.LightningModule):
 		self.track["loss_val"].append(val["loss"])
 		self.track["f1_1s_val"].append(val["f1_1s"]); self.track["er_1s_val"].append(val["er_1s"])
 		self.track["f1_fr_val"].append(val["f1_frame"]); self.track["er_fr_val"].append(val["er_frame"])
-		self.log("val_er_1s", val["er_1s"], prog_bar=True)
-		self.log("val_f1_1s", val["f1_1s"], prog_bar=True)
+		self.log("val_er_1s", float(val["er_1s"]), prog_bar=True)
+		self.log("val_f1_1s", float(val["f1_1s"]), prog_bar=True)
 
 		if not hasattr(self, "_last_train"):	# sanity-check pass
 			self._last_train = val.copy()
@@ -213,7 +217,7 @@ class CRNNLightning(pl.LightningModule):
 
 	def configure_optimizers(self):
 		opt = torch.optim.Adam(self.parameters(),
-				lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+				lr=self.hparams["lr"], weight_decay=self.hparams["weight_decay"])
 		sched = torch.optim.lr_scheduler.ReduceLROnPlateau(
 				opt, mode='min', factor=.5, patience=10)
 		return {"optimizer":opt,
