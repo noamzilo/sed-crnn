@@ -39,7 +39,7 @@ PREDICTION_THRESHOLD = 0.5
 DEVICE = ""
 
 # Processing mode: "single" or "batch"
-MODE = "single"
+MODE = "batch"
 
 # =============================================================================
 # END CONFIGURATION
