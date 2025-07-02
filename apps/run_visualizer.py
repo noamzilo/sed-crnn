@@ -39,7 +39,7 @@ PREDICTION_THRESHOLD = 0.5
 DEVICE = ""
 
 # Processing mode: "single" or "batch"
-MODE = "batch"
+MODE = "single"
 
 # =============================================================================
 # END CONFIGURATION
@@ -102,10 +102,14 @@ def main():
 	try:
 		results = visualizer.visualize_videos(video_paths, val_fold=VAL_FOLD)
 		print(f"\n✅ Successfully processed {len(results)} videos!")
-		
 	except Exception as e:
 		print(f"❌ Error during processing: {str(e)}")
 		return
+
+	# Print output folders for each processed video
+	print("\n📁 Output folders for processed videos:")
+	for idx, result in enumerate(results, 1):
+		print(f"  Video {idx} outputs: {os.path.abspath(result['output_dir'])}")
 
 	# Print absolute paths in Windows format
 	def to_windows_path(path: str) -> str:

@@ -31,6 +31,7 @@ from sed_crnn.crnn_lightning import CRNNLightning
 import sed_crnn.audio_features as af
 from sed_crnn.train_constants import *
 from scipy.interpolate import interp1d
+import librosa.display
 
 class CRNNInferenceVisualizer:
 	"""
@@ -174,15 +175,46 @@ class CRNNInferenceVisualizer:
 		
 		return intervals_df, frame_df, pred_intervals, gt_intervals, matched_pred, matched_gt
 	
-	def plot_predictions(self, frame_df, intervals_df, fps, save_path):
-		"""Create prediction plot using the frame-level dataframe with colors."""
-		fig, ax = plt.subplots(figsize=(15, 5))
-		
+	def plot_predictions(self, frame_df, intervals_df, fps, save_path, y=None, mbe=None, pred_audio=None):
+		"""Create prediction plot using the frame-level dataframe with colors, plus waveform and mel spectrogram."""
+		fig, axes = plt.subplots(3, 1, figsize=(15, 12), sharex=False)
+
+		# 1. Waveform plot
+		if y is not None and pred_audio is not None:
+			t = np.arange(len(y))
+			axes[0].plot(t, y, color='gray', linewidth=0.7, label='Waveform')
+			axes[0].set_ylabel('Amplitude')
+			axes[0].set_title('Audio Waveform with Model Prediction')
+			# Overlay model prediction (upsampled to waveform length)
+			pred_audio_upsampled = np.interp(
+				np.linspace(0, len(pred_audio)-1, num=len(y)),
+				np.arange(len(pred_audio)),
+				pred_audio
+			)
+			pred_scaled = pred_audio_upsampled * np.max(np.abs(y))
+			axes[0].plot(t, pred_scaled, color='b', alpha=0.7, label='Prediction (scaled)')
+			axes[0].legend(loc='upper right')
+			axes[0].set_xlim([0, len(y)])
+
+		# 2. Mel spectrogram plot
+		if mbe is not None and pred_audio is not None:
+			x_mel = np.arange(mbe.shape[0])
+			img = axes[1].imshow(mbe.T, aspect='auto', origin='lower', interpolation='nearest', cmap='magma',
+					extent=[0, mbe.shape[0], 0, mbe.shape[1]])
+			axes[1].set_ylabel('Mel Bin')
+			axes[1].set_title('Mel Spectrogram with Model Prediction')
+			# Overlay model prediction (scaled to mel bins)
+			pred_scaled = pred_audio * mbe.shape[1]
+			axes[1].plot(x_mel, pred_scaled, color='b', alpha=0.7, label='Prediction (scaled)')
+			fig.colorbar(img, ax=axes[1], orientation='vertical', label='Log-Mel')
+			axes[1].set_xlim([0, mbe.shape[0]])
+			axes[1].legend(loc='upper right')
+
+		# 3. Frame-level prediction-vs-gt plot (as before)
+		ax = axes[2]
 		# Get intervals for shading
 		pred_intervals = intervals_df[intervals_df['type'] == 'prediction']
 		gt_intervals = intervals_df[intervals_df['type'] == 'ground_truth']
-		
-		# Shade intervals based on classification
 		for _, interval in pred_intervals.iterrows():
 			s, e = interval['start_frame'], interval['end_frame']
 			classification = interval['classification']
@@ -190,27 +222,23 @@ class CRNNInferenceVisualizer:
 				ax.axvspan(s, e+1, alpha=0.4, color='green', zorder=0)
 			elif classification == 'FP':
 				ax.axvspan(s, e+1, alpha=0.4, color='yellow', zorder=0)
-		
 		for _, interval in gt_intervals.iterrows():
 			s, e = interval['start_frame'], interval['end_frame']
 			classification = interval['classification']
 			if classification == 'FN':
 				ax.axvspan(s, e+1, alpha=0.4, color='red', zorder=0)
-		
 		# Plot prediction
 		ax.plot(frame_df['frame'], frame_df['prediction'], 'b-', linewidth=1, label='Prediction')
 		# Plot ground truth as blue line (0 or 1)
 		ax.plot(frame_df['frame'], frame_df['ground_truth'], 'c-', linewidth=2, label='Ground Truth')
-		
 		# Annotate ground truth hits with index
 		for idx, (_, interval) in enumerate(gt_intervals.iterrows()):
 			s, e = interval['start_frame'], interval['end_frame']
 			center = (s + e) // 2
 			ax.text(center, 1.05, str(idx+1), color='blue', ha='center', va='bottom', fontsize=10, fontweight='bold')
-		
 		# Add dashed horizontal threshold line
 		ax.axhline(self.prediction_threshold, color='black', linestyle='--', linewidth=1, label=f'Threshold={self.prediction_threshold}')
-		ax.set_xlabel('Frame Number')
+		ax.set_xlabel('Frame Number (video)')
 		ax.set_ylabel('Score / Label')
 		ax.set_ylim(-0.05, 1.15)
 		ax.set_title('Hit Detection Predictions vs Ground Truth (with Tolerance)')
@@ -468,10 +496,9 @@ class CRNNInferenceVisualizer:
 		# Create plot
 		print("📈 Creating prediction plot...")
 		intervals_df, frame_df, pred_intervals, gt_intervals, matched_pred, matched_gt = self.create_intervals_dataframe(df, fps, tolerance_sec=0.25)
-		
 		basename = os.path.splitext(os.path.basename(video_path))[0]
 		plot_path = os.path.join(output_dir, f"{basename}_predictions.png")
-		self.plot_predictions(frame_df, intervals_df, fps, plot_path)
+		self.plot_predictions(frame_df, intervals_df, fps, plot_path, y=y, mbe=mbe, pred_audio=pred_audio)
 		
 		# Dump CSVs
 		self.dump_intervals_csv(intervals_df, fps, output_dir, basename)
@@ -481,6 +508,7 @@ class CRNNInferenceVisualizer:
 		self.create_video_overlay(frame_df, video_path, video_out_path, fps, w, h)
 		
 		# Return results
+		print(f"📁 All outputs for this video (overlay, graphs, CSVs) are in: {output_dir}")
 		return {
 			'video_path': video_path,
 			'output_dir': output_dir,
