@@ -15,13 +15,13 @@ Usage:
 # =============================================================================
 
 # Model checkpoint path
-CHECKPOINT_PATH = "models/sed_crnn_fold0.ckpt"
+CHECKPOINT_PATH = "../../sed_crnn/train_artifacts/20250701_221947/fold1/epochepoch=022-valerval_er_1s=0.150.ckpt"
 
 # Directory containing video files (for batch processing)
 VIDEOS_DIR = "data/decorte/rallies"
 
 # Single video path (for single video processing)
-SINGLE_VIDEO_PATH = "data/decorte/rallies/sample_video.mp4"
+SINGLE_VIDEO_PATH = "data/decorte/rallies/20230528_VIGO_00.mp4"
 
 # Base output directory
 OUTPUT_DIR = "output/visualization"
@@ -39,7 +39,7 @@ PREDICTION_THRESHOLD = 0.5
 DEVICE = ""
 
 # Processing mode: "single" or "batch"
-MODE = "batch"
+MODE = "single"
 
 # =============================================================================
 # END CONFIGURATION
@@ -54,9 +54,7 @@ def main():
 	"""Main function to run video processing."""
 	
 	# Validate configuration
-	if not os.path.exists(CHECKPOINT_PATH):
-		print(f"❌ Checkpoint not found: {CHECKPOINT_PATH}")
-		return
+	assert os.path.isfile(CHECKPOINT_PATH), CHECKPOINT_PATH
 	
 	if MODE not in ["single", "batch"]:
 		print(f"❌ Invalid mode: {MODE} (must be 'single' or 'batch')")
@@ -101,9 +99,7 @@ def main():
 	video_paths = []
 	
 	if MODE == "single":
-		if not os.path.exists(SINGLE_VIDEO_PATH):
-			print(f"❌ Single video file not found: {SINGLE_VIDEO_PATH}")
-			return
+		assert os.path.isfile(SINGLE_VIDEO_PATH), SINGLE_VIDEO_PATH
 		video_paths = [SINGLE_VIDEO_PATH]
 		print(f"🎬 Single video: {SINGLE_VIDEO_PATH}")
 		

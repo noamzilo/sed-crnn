@@ -8,10 +8,16 @@ Tabs only.
 """
 
 import os, matplotlib
+
+from . import metrics
+
 matplotlib.use('Agg')				# no GUI required
 import matplotlib.pyplot as plt
-import numpy as np, torch, torch.nn as nn, pytorch_lightning as pl, metrics
-from train_constants import (
+import numpy as np
+import torch
+import torch.nn as nn
+import pytorch_lightning as pl
+from .train_constants import (
 	SEQ_LEN_IN, TIME_POOL, SEQ_LEN_OUT,
 	FPS_OUT, N_MELS, CONV_DEPTH,
 	GRU1_UNITS, GRU2_UNITS, DENSE1_UNITS

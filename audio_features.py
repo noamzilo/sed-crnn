@@ -14,7 +14,7 @@ Tabs ONLY.
 
 import os, subprocess, joblib, numpy as np, librosa
 from sklearn.preprocessing import StandardScaler
-from train_constants import SAMPLE_RATE, HOP_LENGTH, N_MELS
+from .train_constants import SAMPLE_RATE, HOP_LENGTH, N_MELS
 
 # ───────────────────────────────────────────────
 #  ffmpeg decode → mono float32
