@@ -177,14 +177,28 @@ class CRNNInferenceVisualizer:
 	
 	def plot_predictions(self, frame_df, intervals_df, fps, save_path, y=None, mbe=None, pred_audio=None):
 		"""Create prediction plot using the frame-level dataframe with colors, plus waveform and mel spectrogram."""
-		fig, axes = plt.subplots(3, 1, figsize=(15, 12), sharex=False)
+		fig, axes = plt.subplots(3, 1, figsize=(15, 12), sharex=True, gridspec_kw={'height_ratios': [1, 1, 1]})
 
-		# 1. Waveform plot
+		# Compute time axes
+		if y is not None:
+			t_audio = np.arange(len(y)) / SAMPLE_RATE
+		if mbe is not None:
+			t_mel = np.arange(mbe.shape[0]) / FPS_ORIG
+		if frame_df is not None:
+			t_video = frame_df['frame'].values / fps
+
+		# 1. Waveform plot with background coloring (using time)
 		if y is not None and pred_audio is not None:
-			t = np.arange(len(y))
-			axes[0].plot(t, y, color='gray', linewidth=0.7, label='Waveform')
+			frame_colors = frame_df['color'].values
+			samples_per_frame = int(np.ceil(len(y) / len(frame_df)))
+			for i, color in enumerate(frame_colors):
+				if color != 'none':
+					start = i * samples_per_frame / SAMPLE_RATE
+					end = min((i + 1) * samples_per_frame, len(y)) / SAMPLE_RATE
+					axes[0].axvspan(start, end, alpha=0.2, color=color, zorder=0)
+			axes[0].plot(t_audio, y, color='gray', linewidth=0.7, label='Waveform')
 			axes[0].set_ylabel('Amplitude')
-			axes[0].set_title('Audio Waveform with Model Prediction')
+			axes[0].set_title('Audio Waveform with Event Coloring')
 			# Overlay model prediction (upsampled to waveform length)
 			pred_audio_upsampled = np.interp(
 				np.linspace(0, len(pred_audio)-1, num=len(y)),
@@ -192,55 +206,60 @@ class CRNNInferenceVisualizer:
 				pred_audio
 			)
 			pred_scaled = pred_audio_upsampled * np.max(np.abs(y))
-			axes[0].plot(t, pred_scaled, color='b', alpha=0.7, label='Prediction (scaled)')
+			axes[0].plot(t_audio, pred_scaled, color='b', alpha=0.7, label='Prediction (scaled)')
 			axes[0].legend(loc='upper right')
-			axes[0].set_xlim([0, len(y)])
+			axes[0].set_xlim([0, t_audio[-1]])
 
-		# 2. Mel spectrogram plot
-		if mbe is not None and pred_audio is not None:
-			x_mel = np.arange(mbe.shape[0])
+		# 2. Mel spectrogram plot (aligned x, GT as filled mask)
+		if mbe is not None:
 			img = axes[1].imshow(mbe.T, aspect='auto', origin='lower', interpolation='nearest', cmap='magma',
-					extent=[0, mbe.shape[0], 0, mbe.shape[1]])
+					extent=[t_mel[0], t_mel[-1], 0, mbe.shape[1]])
 			axes[1].set_ylabel('Mel Bin')
-			axes[1].set_title('Mel Spectrogram with Model Prediction')
-			# Overlay model prediction (scaled to mel bins)
-			pred_scaled = pred_audio * mbe.shape[1]
-			axes[1].plot(x_mel, pred_scaled, color='b', alpha=0.7, label='Prediction (scaled)')
-			fig.colorbar(img, ax=axes[1], orientation='vertical', label='Log-Mel')
-			axes[1].set_xlim([0, mbe.shape[0]])
+			axes[1].set_title('Mel Spectrogram with Ground Truth Overlay')
+			# Overlay ground truth as a filled mask (hit=1/2 height, no hit=0)
+			if len(t_mel) == len(frame_df):
+				gt_mask = frame_df['gt_binary'].values.astype(float)
+			else:
+				gt_mask = np.interp(t_mel, t_video, frame_df['gt_binary'].values.astype(float))
+			mel_height = mbe.shape[1]
+			axes[1].fill_between(t_mel, 0, gt_mask * (mel_height/2), color='white', alpha=0.4, label='Ground Truth')
+			cbar = fig.colorbar(img, ax=axes[1], orientation='vertical', pad=0.01, aspect=30, fraction=0.04)
+			cbar.set_label('Log-Mel')
+			axes[1].set_xlim([0, t_audio[-1]])
 			axes[1].legend(loc='upper right')
 
-		# 3. Frame-level prediction-vs-gt plot (as before)
+		# 3. Frame-level prediction-vs-gt plot (aligned x)
 		ax = axes[2]
-		# Get intervals for shading
 		pred_intervals = intervals_df[intervals_df['type'] == 'prediction']
 		gt_intervals = intervals_df[intervals_df['type'] == 'ground_truth']
 		for _, interval in pred_intervals.iterrows():
 			s, e = interval['start_frame'], interval['end_frame']
 			classification = interval['classification']
+			t_s = s / fps
+			t_e = (e+1) / fps
 			if classification == 'TP':
-				ax.axvspan(s, e+1, alpha=0.4, color='green', zorder=0)
+				ax.axvspan(t_s, t_e, alpha=0.4, color='green', zorder=0)
 			elif classification == 'FP':
-				ax.axvspan(s, e+1, alpha=0.4, color='yellow', zorder=0)
+				ax.axvspan(t_s, t_e, alpha=0.4, color='yellow', zorder=0)
 		for _, interval in gt_intervals.iterrows():
 			s, e = interval['start_frame'], interval['end_frame']
 			classification = interval['classification']
+			t_s = s / fps
+			t_e = (e+1) / fps
 			if classification == 'FN':
-				ax.axvspan(s, e+1, alpha=0.4, color='red', zorder=0)
-		# Plot prediction
-		ax.plot(frame_df['frame'], frame_df['prediction'], 'b-', linewidth=1, label='Prediction')
-		# Plot ground truth as blue line (0 or 1)
-		ax.plot(frame_df['frame'], frame_df['ground_truth'], 'c-', linewidth=2, label='Ground Truth')
-		# Annotate ground truth hits with index
+				ax.axvspan(t_s, t_e, alpha=0.4, color='red', zorder=0)
+		# Plot prediction and ground truth (aligned x)
+		ax.plot(t_video, frame_df['prediction'], 'b-', linewidth=1, label='Prediction')
+		ax.plot(t_video, frame_df['ground_truth'], 'c-', linewidth=2, label='Ground Truth')
 		for idx, (_, interval) in enumerate(gt_intervals.iterrows()):
 			s, e = interval['start_frame'], interval['end_frame']
-			center = (s + e) // 2
+			center = ((s + e) / 2) / fps
 			ax.text(center, 1.05, str(idx+1), color='blue', ha='center', va='bottom', fontsize=10, fontweight='bold')
-		# Add dashed horizontal threshold line
 		ax.axhline(self.prediction_threshold, color='black', linestyle='--', linewidth=1, label=f'Threshold={self.prediction_threshold}')
-		ax.set_xlabel('Frame Number (video)')
+		ax.set_xlabel('Time (seconds)')
 		ax.set_ylabel('Score / Label')
 		ax.set_ylim(-0.05, 1.15)
+		ax.set_xlim([0, t_audio[-1]])
 		ax.set_title('Hit Detection Predictions vs Ground Truth (with Tolerance)')
 		ax.grid(True, alpha=0.3)
 		ax.legend()
