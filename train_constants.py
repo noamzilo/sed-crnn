@@ -31,3 +31,8 @@ DENSE1_UNITS		= 8			# was 16
 LOSS_TYPE = "cross_entropy"  # Options: 'cross_entropy', 'focal'
 
 INFER_STRIDE = max(1, SEQ_LEN_OUT // 4)
+
+# Data augmentation parameters
+LABEL_PAD_VALUE = 0.5  # Value for padded label regions
+JITTER_RANGE_FRAMES = 2  # Max time jitter in frames (± this value)
+LABEL_PAD_RANGE_MS = 100  # Max label padding in ms (± this value)

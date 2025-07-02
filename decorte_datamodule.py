@@ -37,17 +37,31 @@ def _spec_augment(mel: np.ndarray):
 class HitWindowDataset(Dataset):
 	def __init__(self, mel: np.ndarray, lab: np.ndarray, augment: bool=False):
 		self.mel, self.lab, self.augment = mel, lab, augment
+		# Identify all positive and padded (0.5) frames
+		pos_mask = (lab[:,0] >= 0.5)
 		self.pos = np.where(lab[:,0]==1)[0].tolist()
 		window = np.ones(SEQ_LEN_IN,dtype=np.uint8)
-		self.neg = np.where(np.convolve((lab[:,0]==1).astype(np.uint8),
-										window,'valid')==0)[0].tolist()
+		# Negative indices: windows that do not touch any positive or padded frame
+		neg_mask = np.convolve(pos_mask.astype(np.uint8), window, 'valid') == 0
+		self.neg = np.where(neg_mask)[0].tolist()
 		self.total = mel.shape[0]
 	def __len__(self): return len(self.pos)*2
 	def _rnd_pos(self):
 		c = random.choice(self.pos)
 		a,b = max(0,c-SEQ_LEN_IN+1), min(c,self.total-SEQ_LEN_IN)
-		return random.randint(a,b)
-	def _rnd_neg(self): return random.choice(self.neg)
+		st = random.randint(a,b)
+		# Time jitter
+		if self.augment:
+			jitter = random.randint(-JITTER_RANGE_FRAMES, JITTER_RANGE_FRAMES)
+			st = min(max(0, st + jitter), self.total-SEQ_LEN_IN)
+		return st
+	def _rnd_neg(self):
+		st = random.choice(self.neg)
+		# Time jitter
+		if self.augment:
+			jitter = random.randint(-JITTER_RANGE_FRAMES, JITTER_RANGE_FRAMES)
+			st = min(max(0, st + jitter), self.total-SEQ_LEN_IN)
+		return st
 	def __getitem__(self, idx):
 		st = self._rnd_pos() if idx%2==0 else self._rnd_neg()
 		if st+SEQ_LEN_IN>self.total: st=self.total-SEQ_LEN_IN
@@ -84,8 +98,26 @@ class DecorteDataModule(pl.LightningDataModule):
 		for _,h in info["hits"].iterrows():
 			s = int(np.floor(h["start"]*SAMPLE_RATE/HOP_LENGTH))
 			e = int(np.ceil (h["end"]  *SAMPLE_RATE/HOP_LENGTH))
+			# Main hit region
 			lbl[s:e,0]=1.
-		np.savez(target, mbe, lbl)
+			# Label padding (augmentation): random extension by ±LABEL_PAD_RANGE_MS
+			pad_frames = int((LABEL_PAD_RANGE_MS/1000) * SAMPLE_RATE / HOP_LENGTH)
+			pad_left = random.randint(0, pad_frames)
+			pad_right = random.randint(0, pad_frames)
+			ps = max(0, s - pad_left)
+			pe = min(lbl.shape[0], e + pad_right)
+			# Only set to LABEL_PAD_VALUE if not already 1
+			for i in range(ps, s):
+				if lbl[i,0] < 1:
+					lbl[i,0] = LABEL_PAD_VALUE
+			for i in range(e, pe):
+				if lbl[i,0] < 1:
+					lbl[i,0] = LABEL_PAD_VALUE
+		if mbe is None or lbl is None:
+			raise ValueError("mbe and lbl must not be None before saving")
+		mbe_arr = np.asarray(mbe)
+		lbl_arr = np.asarray(lbl)
+		np.savez(target, mbe=mbe_arr, lbl=lbl_arr)
 
 	# ─────────────────────────────────────
 	def _ensure_fold_npz(self):
@@ -104,7 +136,10 @@ class DecorteDataModule(pl.LightningDataModule):
 
 			X_tr, Y_tr, X_te, Y_te = None, None, None, None
 			for v, info in ds.items():
-				mbe, lbl = np.load(self._per_video_npz(os.path.splitext(v)[0])).values()
+				data = np.load(self._per_video_npz(os.path.splitext(v)[0]))
+				mbe = data['mbe']
+				lbl = data['lbl']
+				assert mbe is not None and lbl is not None, "mbe and lbl must not be None before stacking"
 				if info["fold_id"] == f - 1:
 					X_te = mbe if X_te is None else np.vstack((X_te, mbe))
 					Y_te = lbl if Y_te is None else np.vstack((Y_te, lbl))
