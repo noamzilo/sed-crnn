@@ -29,3 +29,5 @@ DENSE1_UNITS		= 8			# was 16
 
 # Loss function selection
 LOSS_TYPE = "cross_entropy"  # Options: 'cross_entropy', 'focal'
+
+INFER_STRIDE = max(1, SEQ_LEN_OUT // 4)

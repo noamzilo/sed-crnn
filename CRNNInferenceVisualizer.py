@@ -68,8 +68,8 @@ class CRNNInferenceVisualizer:
 		overlay = np.full_like(frame, color, dtype=np.uint8)
 		return cv2.addWeighted(frame, 1-self.alpha, overlay, self.alpha, 0)
 	
-	def sliding_windows(self, mbe: np.ndarray, win: int = SEQ_LEN_IN, stride: int = SEQ_LEN_OUT):
-		"""Create sliding windows for inference."""
+	def sliding_windows(self, mbe: np.ndarray, win: int = SEQ_LEN_IN, stride: int = INFER_STRIDE):
+		"""Create sliding windows for inference using INFER_STRIDE (from train_constants.py)."""
 		wins, starts = [], []
 		for s in range(0, mbe.shape[0] - win + 1, stride):
 			wins.append(mbe[s:s + win].T)
@@ -502,7 +502,8 @@ class CRNNInferenceVisualizer:
 		print(f"✅ Ground truth: {np.sum(gt_video)} active frames out of {nf}")
 		
 		# Inference windows
-		win_x, win_starts = self.sliding_windows(mbe)
+		# Use INFER_STRIDE for more overlap and robustness
+		win_x, win_starts = self.sliding_windows(mbe, win=SEQ_LEN_IN, stride=INFER_STRIDE)
 		tensor_x = torch.from_numpy(win_x).unsqueeze(1).float()
 		loader = torch.utils.data.DataLoader(
 			torch.utils.data.TensorDataset(tensor_x),
@@ -514,18 +515,28 @@ class CRNNInferenceVisualizer:
 		# Run inference
 		model = CRNNLightning.load_from_checkpoint(self.ckpt_path, fold_id=fold, art_dir="/tmp").to(self.device)
 		trainer = Trainer(accelerator=self.device, devices=1, logger=False, enable_checkpointing=False)
-		logits  = trainer.predict(model, loader)
-		
-		# Fix the type issue with logits
-		if logits is not None:
-			preds = torch.cat([torch.tensor(batch) for batch in logits], 0).sigmoid().squeeze(-1).cpu().numpy().reshape(-1)
+		logits_batches  = trainer.predict(model, loader)
+
+		# Aggregate logits per frame (for overlapping windows)
+		logits_per_frame = np.zeros(mbe.shape[0], dtype=np.float32)
+		counts_per_frame = np.zeros(mbe.shape[0], dtype=np.float32)
+		if logits_batches is not None:
+			logits = torch.cat([torch.tensor(batch) for batch in logits_batches], 0).squeeze(-1).cpu().numpy().reshape(-1, SEQ_LEN_OUT)
+			for i, start in enumerate(win_starts):
+				end = start + SEQ_LEN_OUT
+				logit_slice = logits[i]
+				logits_per_frame[start:end] += logit_slice[:min(SEQ_LEN_OUT, mbe.shape[0] - start)]
+				counts_per_frame[start:end] += 1
 		else:
 			raise RuntimeError("No predictions returned from model")
-		
-		# Map to per-frame predictions in audio space
-		pred_audio = np.zeros(mbe.shape[0], np.float32)
-		for i, start in enumerate(win_starts):
-			pred_audio[start:start + SEQ_LEN_OUT] = preds[i * SEQ_LEN_OUT : (i + 1) * SEQ_LEN_OUT]
+
+		# Avoid division by zero
+		mask = counts_per_frame > 0
+		avg_logits = np.zeros_like(logits_per_frame)
+		avg_logits[mask] = logits_per_frame[mask] / counts_per_frame[mask]
+
+		# Apply sigmoid after averaging
+		pred_audio = 1 / (1 + np.exp(-avg_logits))
 		
 		# Convert predictions to video space
 		print("🔄 Converting predictions from audio space to video space...")
