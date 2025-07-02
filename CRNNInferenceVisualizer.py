@@ -210,7 +210,7 @@ class CRNNInferenceVisualizer:
 			axes[0].legend(loc='upper right')
 			axes[0].set_xlim([0, t_audio[-1]])
 
-		# 2. Mel spectrogram plot (aligned x, GT as filled mask)
+		# 2. Mel spectrogram plot (aligned x, GT as filled mask, NO colorbar)
 		if mbe is not None:
 			img = axes[1].imshow(mbe.T, aspect='auto', origin='lower', interpolation='nearest', cmap='magma',
 					extent=[t_mel[0], t_mel[-1], 0, mbe.shape[1]])
@@ -222,9 +222,8 @@ class CRNNInferenceVisualizer:
 			else:
 				gt_mask = np.interp(t_mel, t_video, frame_df['gt_binary'].values.astype(float))
 			mel_height = mbe.shape[1]
-			axes[1].fill_between(t_mel, 0, gt_mask * (mel_height/2), color='white', alpha=0.4, label='Ground Truth')
-			cbar = fig.colorbar(img, ax=axes[1], orientation='vertical', pad=0.01, aspect=30, fraction=0.04)
-			cbar.set_label('Log-Mel')
+			axes[1].fill_between(t_mel, 0, gt_mask * (mel_height/8), color='white', alpha=0.4, label='Ground Truth')
+			# No colorbar here!
 			axes[1].set_xlim([0, t_audio[-1]])
 			axes[1].legend(loc='upper right')
 
