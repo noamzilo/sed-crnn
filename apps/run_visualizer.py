@@ -18,10 +18,10 @@ Usage:
 CHECKPOINT_PATH = "../../sed_crnn/train_artifacts/20250701_221947/fold1/epochepoch=022-valerval_er_1s=0.150.ckpt"
 
 # Directory containing video files (for batch processing)
-VIDEOS_DIR = "data/decorte/rallies"
+VIDEOS_DIR = "../../data/decorte/rallies"
 
 # Single video path (for single video processing)
-SINGLE_VIDEO_PATH = "data/decorte/rallies/20230528_VIGO_00.mp4"
+SINGLE_VIDEO_PATH = "../../data/decorte/rallies/20230528_VIGO_00.mp4"
 
 # Base output directory
 OUTPUT_DIR = "output/visualization"
@@ -47,6 +47,7 @@ MODE = "single"
 
 import os
 import glob
+import pathlib
 
 from sed_crnn.CRNNInferenceVisualizer import CRNNInferenceVisualizer
 
@@ -55,22 +56,10 @@ def main():
 	
 	# Validate configuration
 	assert os.path.isfile(CHECKPOINT_PATH), CHECKPOINT_PATH
-	
-	if MODE not in ["single", "batch"]:
-		print(f"❌ Invalid mode: {MODE} (must be 'single' or 'batch')")
-		return
-	
-	if not 0 <= VAL_FOLD <= 3:
-		print(f"❌ Invalid validation fold: {VAL_FOLD} (must be 0-3)")
-		return
-	
-	if not 0.0 <= ALPHA <= 1.0:
-		print(f"❌ Invalid alpha value: {ALPHA} (must be 0.0-1.0)")
-		return
-	
-	if not 0.0 <= PREDICTION_THRESHOLD <= 1.0:
-		print(f"❌ Invalid prediction threshold: {PREDICTION_THRESHOLD} (must be 0.0-1.0)")
-		return
+	assert MODE in ["single", "batch"], f"Invalid mode: {MODE} (must be 'single' or 'batch')"
+	assert 0 <= VAL_FOLD <= 3, f"Invalid validation fold: {VAL_FOLD} (must be 0-3)"
+	assert 0.0 <= ALPHA <= 1.0, f"Invalid alpha value: {ALPHA} (must be 0.0-1.0)"
+	assert 0.0 <= PREDICTION_THRESHOLD <= 1.0, f"Invalid prediction threshold: {PREDICTION_THRESHOLD} (must be 0.0-1.0)"
 	
 	print("🚀 SED-CRNN Video Visualizer")
 	print("=" * 50)
@@ -95,24 +84,19 @@ def main():
 		print(f"❌ Failed to initialize visualizer: {str(e)}")
 		return
 	
-	# Switch case to choose video paths
-	video_paths = []
-	
+	# Populate video_paths based on MODE
 	if MODE == "single":
-		assert os.path.isfile(SINGLE_VIDEO_PATH), SINGLE_VIDEO_PATH
 		video_paths = [SINGLE_VIDEO_PATH]
-		print(f"🎬 Single video: {SINGLE_VIDEO_PATH}")
-		
 	elif MODE == "batch":
-		if not os.path.exists(VIDEOS_DIR):
-			print(f"❌ Videos directory not found: {VIDEOS_DIR}")
-			return
-		video_paths = glob.glob(os.path.join(VIDEOS_DIR, "*.mp4"))
-		if not video_paths:
-			print(f"❌ No video files found in {VIDEOS_DIR}")
-			return
-		print(f"📁 Batch processing: {len(video_paths)} videos from {VIDEOS_DIR}")
-		print(f"🎯 Val fold: {VAL_FOLD}")
+		assert os.path.isdir(VIDEOS_DIR), f"Videos directory does not exist: {VIDEOS_DIR}"
+		video_paths = sorted(glob.glob(os.path.join(VIDEOS_DIR, "*.mp4")))
+		assert video_paths, f"No .mp4 files found in directory: {VIDEOS_DIR}"
+	else:
+		assert False, f"Invalid MODE: {MODE}"
+
+	# Unified file validity check
+	for video_path in video_paths:
+		assert os.path.isfile(video_path), f"Video file does not exist: {video_path}"
 	
 	# Process videos
 	try:
@@ -122,6 +106,24 @@ def main():
 	except Exception as e:
 		print(f"❌ Error during processing: {str(e)}")
 		return
+
+	# Print absolute paths in Windows format
+	def to_windows_path(path: str) -> str:
+		abs_path = os.path.abspath(path)
+		# WSL home translation
+		wsl_home = '/home/noams'
+		windows_home = r'\\wsl.localhost\\Ubuntu\\home\\noams'
+		if abs_path.startswith(wsl_home):
+			win_path = windows_home + abs_path[len(wsl_home):]
+		else:
+			win_path = abs_path
+		return win_path.replace('/', '\\')
+
+	print("\n🔎 Absolute Paths (Windows format):")
+	print(f"  Checkpoint: {to_windows_path(CHECKPOINT_PATH)}")
+	print(f"  Output Dir: {to_windows_path(OUTPUT_DIR)}")
+	for idx, video_path in enumerate(video_paths, 1):
+		print(f"  Video {idx}: {to_windows_path(video_path)}")
 
 if __name__ == "__main__":
 	main() 
