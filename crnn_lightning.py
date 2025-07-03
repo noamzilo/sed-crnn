@@ -137,8 +137,27 @@ class CRNNLightning(pl.LightningModule):
 		f1_1s = metrics.f1_overall_1sec(p_bin, t_bin, FPS_OUT)
 		er_1s = metrics.er_overall_1sec(p_bin, t_bin, FPS_OUT)
 
+		# Event-based F1
+		def extract_intervals(arr):
+			intervals = []
+			in_interval = False
+			for i, val in enumerate(arr):
+				if val and not in_interval:
+					start = i
+					in_interval = True
+				elif not val and in_interval:
+					intervals.append((start, i - 1))
+					in_interval = False
+			if in_interval:
+				intervals.append((start, len(arr)-1))
+			return intervals
+		pred_intervals = extract_intervals(p_bin.squeeze())
+		gt_intervals = extract_intervals(t_bin.squeeze())
+		f1_event, tp_event, fp_event, fn_event = metrics.event_based_f1(pred_intervals, gt_intervals, FPS_OUT, tol_sec=0.25)
+
 		return dict(loss=loss, f1_frame=f1_fr, er_frame=er_fr,
-					f1_1s=f1_1s, er_1s=er_1s, cm=cm)
+					f1_1s=f1_1s, er_1s=er_1s, cm=cm,
+					f1_event=f1_event, tp_event=tp_event, fp_event=fp_event, fn_event=fn_event)
 
 	def _plot_epoch(self, ep, tr, val):
 		os.makedirs(self.art_dir, exist_ok=True)

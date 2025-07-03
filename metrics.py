@@ -1,5 +1,6 @@
 import numpy as np
 from . import utils
+from typing import List, Tuple
 
 #####################
 # Scoring functions
@@ -17,6 +18,7 @@ def _ensure_numeric(arr):
 	if hasattr(arr, "dtype") and str(arr.dtype) == "bool":
 		return arr.astype(np.uint8)
 	return arr
+
 def f1_overall_framewise(O, T):
 	if len(O.shape) == 3:
 		O, T = utils.reshape_3Dto2D(O), utils.reshape_3Dto2D(T)
@@ -72,3 +74,26 @@ def compute_scores(pred, y, frames_in_1_sec=50):
 		'f1_overall_1sec': f1_overall_1sec(pred, y, frames_in_1_sec),
 		'er_overall_1sec': er_overall_1sec(pred, y, frames_in_1_sec),
 	}
+
+
+def event_based_f1(pred_intervals: List[Tuple[int, int]], gt_intervals: List[Tuple[int, int]], fps: float, tol_sec: float = 0.25):
+	"""
+	Compute event-based F1 score given predicted and ground truth event intervals.
+	Returns (f1, tp, fp, fn)
+	"""
+	pred_centers = [((s+e)/2)/fps for s, e in pred_intervals]
+	gt_centers = [((s+e)/2)/fps for s, e in gt_intervals]
+	matched_pred = set()
+	matched_gt = set()
+	for i, pc in enumerate(pred_centers):
+		for j, gc in enumerate(gt_centers):
+			if abs(pc - gc) <= tol_sec:
+				matched_pred.add(i)
+				matched_gt.add(j)
+				break
+	tp = len(matched_gt)
+	fn = len(gt_intervals) - tp
+	fp = len(pred_intervals) - len(matched_pred)
+	denom = 2 * tp + fp + fn
+	f1 = 2 * tp / denom if denom > 0 else 0.0
+	return f1, tp, fp, fn
