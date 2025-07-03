@@ -50,6 +50,7 @@ import glob
 import pathlib
 from sed_crnn.CRNNInference import CRNNInference
 from sed_crnn.CRNNVisualizer import CRNNVisualizer
+from sed_crnn.CRNNStatistics import CRNNStatistics
 import cv2
 
 
@@ -82,6 +83,7 @@ def main():
 			alpha=ALPHA,
 			prediction_threshold=PREDICTION_THRESHOLD
 		)
+		statistics = CRNNStatistics()
 	except Exception as e:
 		print(f"❌ Failed to initialize inference/visualizer: {str(e)}")
 		return
@@ -100,7 +102,6 @@ def main():
 	for video_path in video_paths:
 		assert os.path.isfile(video_path), f"Video file does not exist: {video_path}"
 
-	results = []
 	for video_path in video_paths:
 		try:
 			# Inference
@@ -129,7 +130,8 @@ def main():
 			cap.release()
 			video_out_path = os.path.join(output_dir, f"{basename}_overlay.mp4")
 			visualizer.create_video_overlay(frame_df, video_path, video_out_path, pred_result['fps'], w, h)
-			results.append({
+			# Collect statistics
+			statistics.add({
 				'video_path': video_path,
 				'output_dir': output_dir,
 				'plot_path': plot_path,
@@ -144,12 +146,17 @@ def main():
 			print(f"❌ Error processing {os.path.basename(video_path)}: {str(e)}")
 			continue
 
-	print(f"\n✅ Successfully processed {len(results)} videos!")
+	print(f"\n✅ Successfully processed {len(statistics.stats)} videos!")
 
 	# Print output folders for each processed video
 	print("\n📁 Output folders for processed videos:")
-	for idx, result in enumerate(results, 1):
-		print(f"  Video {idx} outputs: {os.path.abspath(result['output_dir'])}")
+	for idx, stat in enumerate(statistics.stats, 1):
+		print(f"  Video {idx} outputs: {os.path.abspath(stat['output_dir'])}")
+
+	# Dump statistics to CSV in the output directory
+	stats_csv_path = os.path.join(OUTPUT_DIR, "inference_statistics.csv")
+	statistics.dump_csv(stats_csv_path)
+	print(f"\n📊 Statistics dumped to: {os.path.abspath(stats_csv_path)}")
 
 	# Print absolute paths in Windows format
 	def to_windows_path(path: str) -> str:
