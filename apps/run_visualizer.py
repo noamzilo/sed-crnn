@@ -23,6 +23,7 @@ VIDEOS_DIR = "../../data/decorte/rallies"
 # Single video path (for single video processing)
 SINGLE_VIDEO_PATH = "../../data/decorte/rallies/20230528_VIGO_00.mp4"
 SINGLE_VIDEO_PATH = "../../data/decorte/rallies/20231112_MALMO_04.mp4"
+SINGLE_VIDEO_PATH = "../../data/decorte/rallies/20230903_FINLAND_08.mp4"
 
 # Base output directory
 OUTPUT_DIR = "../../output/visualization"
@@ -104,6 +105,8 @@ def main():
 	for video_path in video_paths:
 		assert os.path.isfile(video_path), f"Video file does not exist: {video_path}"
 
+	output_dirs = []  # Collect per-video output directories
+
 	for video_path in video_paths:
 		try:
 			# Inference
@@ -112,6 +115,7 @@ def main():
 			basename = os.path.splitext(os.path.basename(video_path))[0]
 			output_dir = os.path.join(OUTPUT_DIR, basename)
 			os.makedirs(output_dir, exist_ok=True)
+			output_dirs.append(output_dir)  # Collect output dir
 			# Visualization
 			frame_df = visualizer.create_frame_level_dataframe(
 				pred_result.pred_video, pred_result.gt_video, pred_result.fps, pred_result.nf
@@ -219,6 +223,10 @@ def main():
 	print(f"  Output Dir: {to_windows_path(OUTPUT_DIR)}")
 	for idx, video_path in enumerate(video_paths, 1):
 		print(f"  Video {idx}: {to_windows_path(video_path)}")
+
+	print("  Output folders per video (Windows):")
+	for idx, out_dir in enumerate(output_dirs, 1):
+		print(f"    Video {idx} output: {to_windows_path(out_dir)}")
 
 if __name__ == "__main__":
 	main() 
