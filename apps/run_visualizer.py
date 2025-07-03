@@ -22,6 +22,7 @@ VIDEOS_DIR = "../../data/decorte/rallies"
 
 # Single video path (for single video processing)
 SINGLE_VIDEO_PATH = "../../data/decorte/rallies/20230528_VIGO_00.mp4"
+SINGLE_VIDEO_PATH = "../../data/decorte/rallies/20231112_MALMO_04.mp4"
 
 # Base output directory
 OUTPUT_DIR = "../../output/visualization"
@@ -39,8 +40,8 @@ PREDICTION_THRESHOLD = 0.5
 DEVICE = ""
 
 # Processing mode: "single" or "batch"
-MODE = "batch"
-# MODE = "single"
+# MODE = "batch"
+MODE = "single"
 
 # =============================================================================
 # END CONFIGURATION
