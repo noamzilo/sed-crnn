@@ -21,20 +21,21 @@ import sed_crnn.audio_features as af
 from sed_crnn.crnn_lightning import CRNNLightning
 from sed_crnn.train_constants import *
 from scipy.interpolate import interp1d
+from sed_crnn.InferenceResult import InferenceResult
 
 class CRNNInference:
 	"""
 	Handles SED-CRNN model inference and prediction generation.
 	"""
-	def __init__(self, ckpt_path: str, device: str = None):
+	def __init__(self, ckpt_path: str, device: str = ""):
 		"""
 		Initialize the CRNN inference engine.
 		Args:
 			ckpt_path: Path to the model checkpoint
-			device: Device to use for inference (auto-detect if None)
+			device: Device to use for inference (empty string for auto-detect)
 		"""
 		self.ckpt_path = ckpt_path
-		self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+		self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
 		self.meta_all = load_decorte_dataset()
 
 	def sliding_windows(self, mbe: np.ndarray, win: int = SEQ_LEN_IN, stride: int = INFER_STRIDE):
@@ -65,13 +66,13 @@ class CRNNInference:
 		pred_video = pred_interpolator(video_times)
 		return pred_video
 
-	def process_video(self, video_path: str) -> Dict[str, Any]:
+	def process_video(self, video_path: str) -> InferenceResult:
 		"""
 		Process a single video and generate predictions.
 		Args:
 			video_path: Path to the input video
 		Returns:
-			Dict with predictions, ground truth, and metadata
+			InferenceResult instance with predictions, ground truth, and metadata
 		"""
 		import cv2
 		os.makedirs("/tmp", exist_ok=True)
@@ -120,15 +121,15 @@ class CRNNInference:
 		avg_logits[mask] = logits_per_frame[mask] / counts_per_frame[mask]
 		pred_audio = 1 / (1 + np.exp(-avg_logits))
 		pred_video = self.create_predictions_in_video_space(pred_audio, fps, nf)
-		return {
-			'video_path': video_path,
-			'fold_id': fold,
-			'gt_video': gt_video,
-			'pred_audio': pred_audio,
-			'pred_video': pred_video,
-			'fps': fps,
-			'nf': nf,
-			'y': y,
-			'mbe': mbe,
-			'hits': hits
-		} 
+		return InferenceResult(
+			video_path=video_path,
+			fold_id=fold,
+			hits=hits,
+			gt_video=gt_video,
+			pred_audio=pred_audio,
+			pred_video=pred_video,
+			fps=fps,
+			nf=nf,
+			y=y,
+			mbe=mbe
+		) 

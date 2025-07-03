@@ -1,35 +1,68 @@
+import pandas as pd
+from sed_crnn.InferenceResult import InferenceResult
+import numpy as np
+from typing import List
 import os
-import csv
 import json
-from typing import List, Dict, Any, Optional
 
 class CRNNStatistics:
     """
     Collects and dumps statistics for SED-CRNN video inference runs.
     """
     def __init__(self):
-        self.stats: List[Dict[str, Any]] = []
+        self._results: List[InferenceResult] = []
+        self._df: pd.DataFrame = pd.DataFrame()
 
-    def add(self, stat: Dict[str, Any]) -> None:
-        """Add statistics for a single video."""
-        self.stats.append(stat)
+    def add_inference(self, result: InferenceResult) -> None:
+        self._results.append(result)
+        self._df = pd.DataFrame()  # Invalidate cached DataFrame
 
-    def dump_csv(self, path: str, fieldnames: Optional[List[str]] = None) -> None:
-        """Dump all statistics to a CSV file at the given path."""
-        if not self.stats:
-            raise ValueError("No statistics to dump.")
-        if fieldnames is None:
-            # Use keys from the first stat as fieldnames
-            fieldnames = list(self.stats[0].keys())
+    def build_dataframe(self) -> pd.DataFrame:
+        if self._df.empty:
+            rows = []
+            for r in self._results:
+                rows.append({
+                    "video_path": r.video_path,
+                    "fold_id": r.fold_id,
+                    "num_hits": len(r.hits),
+                    "num_predicted_events": self._count_events(r.pred_video),
+                    "num_gt_events": self._count_events(r.gt_video),
+                })
+            self._df = pd.DataFrame(rows)
+        return self._df
+
+    @staticmethod
+    def _count_events(arr: np.ndarray, threshold: float = 0.5) -> int:
+        # Count contiguous regions above threshold as events
+        above = arr > threshold
+        # Find rising edges (start of event)
+        return int(np.diff(np.concatenate(([0], above.astype(int), [0]))).sum() // 2)
+
+    @property
+    def num_hits(self) -> pd.Series:
+        df = self.build_dataframe()
+        return pd.Series(df["num_hits"]) if "num_hits" in df.columns else pd.Series(dtype=int)
+
+    @property
+    def num_predicted_events(self) -> pd.Series:
+        df = self.build_dataframe()
+        return pd.Series(df["num_predicted_events"]) if "num_predicted_events" in df.columns else pd.Series(dtype=int)
+
+    @property
+    def num_gt_events(self) -> pd.Series:
+        df = self.build_dataframe()
+        return pd.Series(df["num_gt_events"]) if "num_gt_events" in df.columns else pd.Series(dtype=int)
+
+    @property
+    def dataframe(self) -> pd.DataFrame:
+        return self.build_dataframe()
+
+    def dump_csv(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for stat in self.stats:
-                writer.writerow(stat)
+        df = self.build_dataframe()
+        df.to_csv(path, index=False)
 
     def dump_json(self, path: str) -> None:
-        """Dump all statistics to a JSON file at the given path."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(self.stats, f, indent=2) 
+        df = self.build_dataframe()
+        df.to_json(path, orient='records', indent=2) 
