@@ -48,19 +48,20 @@ MODE = "single"
 import os
 import glob
 import pathlib
+from sed_crnn.CRNNInference import CRNNInference
+from sed_crnn.CRNNVisualizer import CRNNVisualizer
+import cv2
 
-from sed_crnn.CRNNInferenceVisualizer import CRNNInferenceVisualizer
 
 def main():
 	"""Main function to run video processing."""
-	
 	# Validate configuration
 	assert os.path.isfile(CHECKPOINT_PATH), CHECKPOINT_PATH
 	assert MODE in ["single", "batch"], f"Invalid mode: {MODE} (must be 'single' or 'batch')"
 	assert 0 <= VAL_FOLD <= 3, f"Invalid validation fold: {VAL_FOLD} (must be 0-3)"
 	assert 0.0 <= ALPHA <= 1.0, f"Invalid alpha value: {ALPHA} (must be 0.0-1.0)"
 	assert 0.0 <= PREDICTION_THRESHOLD <= 1.0, f"Invalid prediction threshold: {PREDICTION_THRESHOLD} (must be 0.0-1.0)"
-	
+
 	print("🚀 SED-CRNN Video Visualizer")
 	print("=" * 50)
 	print(f"📁 Checkpoint: {CHECKPOINT_PATH}")
@@ -70,20 +71,21 @@ def main():
 	print(f"⚙️  Threshold: {PREDICTION_THRESHOLD}")
 	print(f"💻 Device: {DEVICE or 'auto-detect'}")
 	print("=" * 50)
-	
-	# Create visualizer
+
+	# Create inference and visualizer objects
 	try:
-		visualizer = CRNNInferenceVisualizer(
+		inference = CRNNInference(
 			ckpt_path=CHECKPOINT_PATH,
-			output_dir=OUTPUT_DIR,
+			device=DEVICE if DEVICE else "cpu"
+		)
+		visualizer = CRNNVisualizer(
 			alpha=ALPHA,
-			prediction_threshold=PREDICTION_THRESHOLD,
-			device=DEVICE
+			prediction_threshold=PREDICTION_THRESHOLD
 		)
 	except Exception as e:
-		print(f"❌ Failed to initialize visualizer: {str(e)}")
+		print(f"❌ Failed to initialize inference/visualizer: {str(e)}")
 		return
-	
+
 	# Populate video_paths based on MODE
 	if MODE == "single":
 		video_paths = [SINGLE_VIDEO_PATH]
@@ -97,14 +99,52 @@ def main():
 	# Unified file validity check
 	for video_path in video_paths:
 		assert os.path.isfile(video_path), f"Video file does not exist: {video_path}"
-	
-	# Process videos
-	try:
-		results = visualizer.visualize_videos(video_paths, val_fold=VAL_FOLD)
-		print(f"\n✅ Successfully processed {len(results)} videos!")
-	except Exception as e:
-		print(f"❌ Error during processing: {str(e)}")
-		return
+
+	results = []
+	for video_path in video_paths:
+		try:
+			# Inference
+			pred_result = inference.process_video(video_path)
+			# Output directory per video
+			basename = os.path.splitext(os.path.basename(video_path))[0]
+			output_dir = os.path.join(OUTPUT_DIR, basename)
+			os.makedirs(output_dir, exist_ok=True)
+			# Visualization
+			frame_df = visualizer.create_frame_level_dataframe(
+				pred_result['pred_video'], pred_result['gt_video'], pred_result['fps'], pred_result['nf']
+			)
+			intervals_df, frame_df, pred_intervals, gt_intervals, matched_pred, matched_gt = visualizer.create_intervals_dataframe(
+				frame_df, pred_result['fps'], tolerance_sec=0.25
+			)
+			plot_path = os.path.join(output_dir, f"{basename}_predictions.png")
+			visualizer.plot_predictions(
+				frame_df, intervals_df, pred_result['fps'], plot_path,
+				y=pred_result['y'], mbe=pred_result['mbe'], pred_audio=pred_result['pred_audio']
+			)
+			visualizer.dump_intervals_csv(intervals_df, pred_result['fps'], output_dir, basename)
+			# Video overlay
+			cap = cv2.VideoCapture(video_path)
+			w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+			h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+			cap.release()
+			video_out_path = os.path.join(output_dir, f"{basename}_overlay.mp4")
+			visualizer.create_video_overlay(frame_df, video_path, video_out_path, pred_result['fps'], w, h)
+			results.append({
+				'video_path': video_path,
+				'output_dir': output_dir,
+				'plot_path': plot_path,
+				'video_out_path': video_out_path,
+				'fold_id': pred_result['fold_id'],
+				'num_hits': len(pred_result['hits']),
+				'prediction_frames': int((pred_result['pred_video'] > PREDICTION_THRESHOLD).sum()),
+				'gt_frames': int(pred_result['gt_video'].sum()),
+			})
+			print(f"✅ Successfully processed {os.path.basename(video_path)}")
+		except Exception as e:
+			print(f"❌ Error processing {os.path.basename(video_path)}: {str(e)}")
+			continue
+
+	print(f"\n✅ Successfully processed {len(results)} videos!")
 
 	# Print output folders for each processed video
 	print("\n📁 Output folders for processed videos:")
