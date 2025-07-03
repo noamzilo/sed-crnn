@@ -20,6 +20,12 @@ import matplotlib.pyplot as plt
 from typing import Any, Dict, List, Tuple
 from sed_crnn.train_constants import *
 import tempfile
+from sed_crnn.metrics import event_based_f1
+
+# Use cv2.VideoWriter_fourcc, suppress linter warning if needed
+# type: ignore[attr-defined]
+def fourcc(*args):
+	return cv2.VideoWriter_fourcc(*args)  # type: ignore[attr-defined]
 
 class CRNNVisualizer:
 	"""
@@ -53,8 +59,8 @@ class CRNNVisualizer:
 		})
 		return df
 
-	def extract_intervals(self, binary_array: np.ndarray) -> List[Tuple[int, int]]:
-		"""Extract (start, end) intervals from a binary 1D array."""
+	@staticmethod
+	def _extract_intervals(binary_array: np.ndarray) -> List[Tuple[int, int]]:
 		intervals = []
 		in_interval = False
 		for i, val in enumerate(binary_array):
@@ -62,27 +68,30 @@ class CRNNVisualizer:
 				start = i
 				in_interval = True
 			elif not val and in_interval:
-				end = i - 1
-				intervals.append((start, end))
+				intervals.append((start, i - 1))
 				in_interval = False
 		if in_interval:
 			intervals.append((start, len(binary_array) - 1))
 		return intervals
 
 	def create_intervals_dataframe(self, frame_df: pd.DataFrame, fps: float, tolerance_sec: float = 0.25):
-		"""Create a dataframe with event intervals and their classification (TP/FP/FN)."""
-		pred_intervals = self.extract_intervals(frame_df['pred_binary'].values)
-		gt_intervals = self.extract_intervals(frame_df['gt_binary'].values)
-		pred_centers = [((s + e) / 2) / fps for s, e in pred_intervals]
-		gt_centers = [((s + e) / 2) / fps for s, e in gt_intervals]
+		"""Create a dataframe with event intervals and their classification (TP/FP/FN) using event-based logic."""
+		pred_intervals = self._extract_intervals(frame_df['pred_binary'].to_numpy(dtype=bool))
+		gt_intervals = self._extract_intervals(frame_df['gt_binary'].to_numpy(dtype=bool))
+		f1, tp, fp, fn = event_based_f1(pred_intervals, gt_intervals, fps, tol_sec=tolerance_sec)
+
+		# Classify intervals
 		matched_pred = set()
 		matched_gt = set()
+		pred_centers = [((s+e)/2)/fps for s, e in pred_intervals]
+		gt_centers = [((s+e)/2)/fps for s, e in gt_intervals]
 		for i, pc in enumerate(pred_centers):
 			for j, gc in enumerate(gt_centers):
 				if abs(pc - gc) <= tolerance_sec:
 					matched_pred.add(i)
 					matched_gt.add(j)
 					break
+
 		intervals_data = []
 		for idx, (s, e) in enumerate(pred_intervals):
 			intervals_data.append({
@@ -136,7 +145,7 @@ class CRNNVisualizer:
 	def create_video_overlay(self, frame_df: pd.DataFrame, video_path: str, output_path: str, fps: float, width: int, height: int):
 		"""Create video overlay using frame-level dataframe colors."""
 		tmp_vid = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-		writer = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+		writer = cv2.VideoWriter(tmp_vid, int(fourcc('m','p','4','v')), fps, (width, height))
 		cap = cv2.VideoCapture(video_path)
 		for i, row in frame_df.iterrows():
 			ret, frame = cap.read()
