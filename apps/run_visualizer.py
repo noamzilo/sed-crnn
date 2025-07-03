@@ -39,7 +39,8 @@ PREDICTION_THRESHOLD = 0.5
 DEVICE = ""
 
 # Processing mode: "single" or "batch"
-MODE = "single"
+MODE = "batch"
+# MODE = "single"
 
 # =============================================================================
 # END CONFIGURATION
@@ -163,6 +164,42 @@ def main():
 	# Print event-based summary to console
 	print("\n🔎 Event-based summary:")
 	statistics.print_total_stats()
+
+	# Print per-video statistics
+	print("\n📋 Per-video statistics:")
+	print(statistics.dataframe.to_string(index=False))
+
+	# Print separate stats for train and val
+	val_fold = VAL_FOLD
+	val_df = statistics.dataframe[statistics.dataframe["fold_id"] == val_fold]
+	train_df = statistics.dataframe[statistics.dataframe["fold_id"] != val_fold]
+
+	def print_group_stats(df, group_name):
+		if df.empty:
+			print(f"No videos in {group_name} set.")
+			return
+		total_gt = df["num_gt_events"].sum()
+		tp = df["tp_events"].sum()
+		fn = df["fn_events"].sum()
+		fp = df["fp_events"].sum()
+		detection_percent = 100.0 * tp / total_gt if total_gt > 0 else 0.0
+		miss_percent = 100.0 * fn / total_gt if total_gt > 0 else 0.0
+		fp_rate = 100.0 * fp / total_gt if total_gt > 0 else 0.0
+		denom = 2 * tp + fp + fn
+		event_f1 = 2 * tp / denom if denom > 0 else 0.0
+		print(f"\n🔹 {group_name.capitalize()} set stats:")
+		print(f"  Videos: {len(df)}")
+		print(f"  GT events: {total_gt}")
+		print(f"  TP events: {tp} ({detection_percent:.2f}%)")
+		print(f"  FN events: {fn} ({miss_percent:.2f}%)")
+		print(f"  FP events: {fp} (FP rate: {fp_rate:.2f}% of GT events)")
+		print(f"  Event-based F1: {event_f1:.4f}")
+
+	print_group_stats(train_df, "train")
+	print_group_stats(val_df, "val")
+
+	# Print where the total stats CSV was dumped
+	print(f"\n📊 Event-based totals CSV dumped to: {os.path.abspath(totals_csv_path)}")
 
 	# Print absolute paths in Windows format
 	def to_windows_path(path: str) -> str:
