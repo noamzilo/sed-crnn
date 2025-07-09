@@ -15,6 +15,14 @@ TIME_MASK_W		= 8			# frames
 FREQ_MASK_W		= 8			# mel bins
 MASKS_PER_EX	= 2
 
+# Augmentation levels (0 disables augmentation)
+NOISE_LEVEL = 0.0  # Standard deviation of Gaussian noise to add to input features (0 = no noise)
+TIME_MASK_LEVEL = 1.0  # 0 disables time masking, 1.0 is default, >1 increases masking
+FREQ_MASK_LEVEL = 1.0  # 0 disables freq masking, 1.0 is default, >1 increases masking
+SPEC_AUGMENT_LEVEL = 1.0  # 0 disables SpecAugment, 1.0 is default, >1 increases masking
+JITTER_LEVEL = 1.0  # 0 disables time jitter, 1.0 is default, >1 increases jitter
+LABEL_PAD_LEVEL = 1.0  # 0 disables label padding, 1.0 is default, >1 increases padding
+
 SAMPLE_RATE				= 44_100
 HOP_LENGTH				= 2048 // 2
 FPS_ORIG				= int(SAMPLE_RATE / HOP_LENGTH)		# ≈43 fps
